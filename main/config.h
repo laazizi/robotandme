@@ -20,6 +20,11 @@
 #define PIN_ENC_R_A       47
 #define PIN_ENC_R_B       48
 
+// IMU ICM-42688-P en I2C (adresse 0x68 si AD0 à GND, 0x69 sinon)
+#define PIN_IMU_SDA       7
+#define PIN_IMU_SCL       8
+#define IMU_I2C_ADDR      0x68
+
 // ============================================================
 // Géométrie robot — à mesurer précisément.
 // TRACK_WIDTH_M est LE paramètre critique pour le cap : le
@@ -39,6 +44,8 @@
 // Contrôle
 // ============================================================
 #define CONTROL_PERIOD_MS     20      // boucle PID + odométrie à 50 Hz
+#define IMU_PERIOD_MS         10      // publication /imu/data_raw à 100 Hz
+#define IMU_GYRO_CALIB_SAMPLES 200    // ~1 s de calibration biais gyro au boot
 #define CMD_VEL_TIMEOUT_MS    500     // deadman : moteurs coupés sans cmd_vel
 #define PWM_FREQ_HZ           20000   // 20 kHz : inaudible, max supporté MDD10A rev2.0
 #define MAX_WHEEL_SPEED_MPS   1.0f    // saturation consigne vitesse roue

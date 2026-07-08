@@ -20,6 +20,7 @@
 
 #include <geometry_msgs/msg/twist.h>
 #include <nav_msgs/msg/odometry.h>
+#include <sensor_msgs/msg/imu.h>
 
 #if defined(CONFIG_MICRO_ROS_ESP_NETIF_WLAN) || defined(CONFIG_MICRO_ROS_ESP_NETIF_ENET)
 #include <uros_network_interfaces.h>
@@ -31,6 +32,7 @@
 
 #include "config.h"
 #include "encoders.h"
+#include "imu.h"
 #include "motors.h"
 #include "odometry.h"
 #include "pid.h"
@@ -57,8 +59,11 @@ static const char *TAG = "mowbot";
 
 static rcl_subscription_t s_sub_cmd_vel;
 static rcl_publisher_t s_pub_odom;
+static rcl_publisher_t s_pub_imu;
 static geometry_msgs__msg__Twist s_cmd_vel_msg;
 static nav_msgs__msg__Odometry s_odom_msg;
+static sensor_msgs__msg__Imu s_imu_msg;
+static bool s_imu_present;
 
 // Consignes vitesse roue [m/s] : écrites par le callback cmd_vel,
 // lues par le timer de contrôle (même executor → pas de concurrence).
@@ -102,6 +107,44 @@ static void odom_msg_init(void)
         s_odom_msg.pose.covariance[i * 7] = pose_cov[i];
         s_odom_msg.twist.covariance[i * 7] = twist_cov[i];
     }
+}
+
+static void imu_msg_init(void)
+{
+    memset(&s_imu_msg, 0, sizeof(s_imu_msg));
+    ros_string_set(&s_imu_msg.header.frame_id, "imu_link");
+
+    // Pas d'estimation d'orientation embarquée : convention ROS = -1
+    s_imu_msg.orientation_covariance[0] = -1.0;
+    for (int i = 0; i < 3; i++) {
+        s_imu_msg.angular_velocity_covariance[i * 4] = 2.5e-5;    // gyro ICM-42688 LN
+        s_imu_msg.linear_acceleration_covariance[i * 4] = 2.5e-3;
+    }
+}
+
+static void imu_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
+{
+    (void)timer;
+    (void)last_call_time;
+
+    imu_sample_t sample;
+    if (!imu_read(&sample)) {
+        return;
+    }
+
+    if (rmw_uros_epoch_synchronized()) {
+        int64_t ns = rmw_uros_epoch_nanos();
+        s_imu_msg.header.stamp.sec = (int32_t)(ns / 1000000000LL);
+        s_imu_msg.header.stamp.nanosec = (uint32_t)(ns % 1000000000LL);
+    }
+    s_imu_msg.angular_velocity.x = sample.gx;
+    s_imu_msg.angular_velocity.y = sample.gy;
+    s_imu_msg.angular_velocity.z = sample.gz;
+    s_imu_msg.linear_acceleration.x = sample.ax;
+    s_imu_msg.linear_acceleration.y = sample.ay;
+    s_imu_msg.linear_acceleration.z = sample.az;
+
+    RCSOFTCHECK(rcl_publish(&s_pub_imu, &s_imu_msg, NULL));
 }
 
 static void cmd_vel_callback(const void *msg_in)
@@ -219,16 +262,30 @@ static void micro_ros_task(void *arg)
                                     RCL_MS_TO_NS(CONTROL_PERIOD_MS),
                                     control_timer_callback));
 
+    rcl_timer_t imu_timer;
+    if (s_imu_present) {
+        RCCHECK(rclc_publisher_init_default(
+            &s_pub_imu, &node,
+            ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "imu/data_raw"));
+        RCCHECK(rclc_timer_init_default(&imu_timer, &support,
+                                        RCL_MS_TO_NS(IMU_PERIOD_MS),
+                                        imu_timer_callback));
+    }
+
     rclc_executor_t executor;
-    RCCHECK(rclc_executor_init(&executor, &support.context, 2, &allocator));
+    RCCHECK(rclc_executor_init(&executor, &support.context, 3, &allocator));
     RCCHECK(rclc_executor_add_timer(&executor, &control_timer));
     RCCHECK(rclc_executor_add_subscription(&executor, &s_sub_cmd_vel, &s_cmd_vel_msg,
                                            &cmd_vel_callback, ON_NEW_DATA));
+    if (s_imu_present) {
+        RCCHECK(rclc_executor_add_timer(&executor, &imu_timer));
+    }
 
-    // Horloge synchronisée avec l'agent → stamps /odom cohérents pour l'EKF
+    // Horloge synchronisée avec l'agent → stamps /odom et /imu cohérents pour l'EKF
     RCSOFTCHECK(rmw_uros_sync_session(1000));
 
     odom_msg_init();
+    imu_msg_init();
     s_last_cmd_tick = xTaskGetTickCount();
 
     while (true) {
@@ -256,6 +313,12 @@ void app_main(void)
     encoders_init();
     pid_init(&s_pid_left, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
     pid_init(&s_pid_right, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
+
+    // Calibration gyro au boot, robot immobile (~1 s)
+    s_imu_present = imu_init();
+    if (s_imu_present) {
+        imu_calibrate_gyro();
+    }
 
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);
 }

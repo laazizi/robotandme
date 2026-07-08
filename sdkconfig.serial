@@ -1,0 +1,2 @@
+# Profil transport SERIE (UART0/USB, 115200 bauds) — le plus simple pour debuter
+CONFIG_MICRO_ROS_ESP_UART_TRANSPORT=y

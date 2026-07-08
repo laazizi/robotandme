@@ -38,6 +38,7 @@ Sur la tondeuse finale : l'odométrie roues est une source *secondaire*
 | DIR moteur droit | 23 | DIR2 |
 | Encodeur gauche A/B | 45 / 46 | — |
 | Encodeur droit A/B | 47 / 48 | — |
+| IMU SDA / SCL | 7 / 8 | ICM-42688 (I2C 400 kHz, addr 0x68) |
 | GND | GND | GND (commun obligatoire) |
 
 ⚠️ Broches à valider contre le schéma de la carte EV (certaines GPIO sont
@@ -51,10 +52,16 @@ scripts fournis compilent dans Docker et flashent directement sur le port COM
 
 ```powershell
 .\scripts\build.ps1                  # build dans Docker (clone le composant au 1er run)
-.\scripts\build.ps1 -Menuconfig      # changer le transport (série → Ethernet), etc.
+.\scripts\build.ps1 -Transport eth   # bascule série → Ethernet/UDP (voir sdkconfig.eth)
+.\scripts\build.ps1 -Menuconfig      # réglages fins (IP de l'agent, pins...)
 .\scripts\flash.ps1 -Port COM5       # flash depuis Windows (auto-détection si un seul port)
 .\scripts\monitor.ps1 -Port COM5     # logs du firmware (Ctrl+] pour quitter)
 ```
+
+Deux profils de transport : **série** (`sdkconfig.serial`, défaut — UART0/USB
+115200) et **Ethernet/UDP** (`sdkconfig.eth` — EMAC interne + PHY IP101 de la
+carte EV, pins déjà corrects). Pour l'Ethernet, mettre l'IP du SBC dans
+`sdkconfig.eth` (`CONFIG_MICRO_ROS_AGENT_IP`) avant de builder.
 
 Le premier build est long (image ~2 Go + compilation complète de libmicroros) ;
 les suivants sont incrémentaux.
@@ -104,9 +111,10 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ## Feuille de route
 
 - [x] Diffdrive : cmd_vel → PID → MDD10A, odométrie → /odom
-- [ ] IMU (ICM-42688 / BMI270) → pub `/imu/data_raw` à 100 Hz
-- [ ] Transport Ethernet (PHY IP101 de la carte EV) vers le SBC
-- [ ] Côté SBC : robot_localization (EKF odom + IMU)
+- [x] IMU ICM-42688 → pub `/imu/data_raw` à 100 Hz (calibration biais gyro au boot ;
+      le firmware démarre sans IMU si elle est absente)
+- [x] Transport Ethernet (profil `sdkconfig.eth`, PHY IP101 de la carte EV)
+- [x] Côté SBC : robot_localization — voir [ros2/](ros2/) (EKF vitesses odom + gyro yaw)
 - [ ] GPS RTK (u-blox ZED-F9P) — source de position principale en extérieur
 - [ ] Coverage planning (opennav_coverage / Fields2Cover)
 - [ ] Contrôle lame + capteurs de sécurité (soulèvement, bumper)
