@@ -1,0 +1,8 @@
+CONFIG_IDF_TARGET="esp32p4"
+
+# Tick FreeRTOS a 1 kHz pour un timing de boucle de controle precis
+CONFIG_FREERTOS_HZ=1000
+
+# Transport micro-ROS : serie (UART0 / USB) par defaut.
+# Passer en Ethernet plus tard via : idf.py menuconfig -> micro-ROS Settings
+CONFIG_MICRO_ROS_ESP_UART_TRANSPORT=y
