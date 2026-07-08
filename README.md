@@ -43,21 +43,28 @@ Sur la tondeuse finale : l'odométrie roues est une source *secondaire*
 ⚠️ Broches à valider contre le schéma de la carte EV (certaines GPIO sont
 prises par le SD, le MIPI ou le PHY Ethernet).
 
-## Compilation
+## Compilation et flashage
 
-Prérequis : ESP-IDF **v5.2+** et le composant micro-ROS (branche `humble`).
-Le composant micro-ROS se compile sous Linux : sous Windows, passer par
-**WSL2** ou le docker `microros/esp-idf-microros`.
+Le composant micro-ROS ne se compile que sous Linux. Sous **Windows**, les
+scripts fournis compilent dans Docker et flashent directement sur le port COM
+(prérequis : Docker Desktop, Python + `pip install esptool pyserial`) :
+
+```powershell
+.\scripts\build.ps1                  # build dans Docker (clone le composant au 1er run)
+.\scripts\build.ps1 -Menuconfig      # changer le transport (série → Ethernet), etc.
+.\scripts\flash.ps1 -Port COM5       # flash depuis Windows (auto-détection si un seul port)
+.\scripts\monitor.ps1 -Port COM5     # logs du firmware (Ctrl+] pour quitter)
+```
+
+Le premier build est long (image ~2 Go + compilation complète de libmicroros) ;
+les suivants sont incrémentaux.
+
+Sous **Linux / WSL2** avec ESP-IDF v5.2+ installé nativement :
 
 ```bash
-# 1. Cloner le composant micro-ROS (gitignoré, à faire une fois)
-git clone -b humble https://github.com/micro-ROS/micro_ros_espidf_component.git \
-    components/micro_ros_espidf_component
-
-# 2. Cible + build + flash
-idf.py set-target esp32p4
-idf.py build
-idf.py flash monitor
+./scripts/build.sh                   # ou : build.sh clean | build.sh menuconfig
+./scripts/flash.sh /dev/ttyUSB0 monitor
+# Sous WSL2, attacher l'USB d'abord (côté Windows, admin) : usbipd attach --wsl --busid <id>
 ```
 
 Transport par défaut : **série (UART0/USB, 115200 bauds)** — le plus simple
