@@ -1,0 +1,3 @@
+# Les scripts bash doivent rester en LF meme sur un checkout Windows,
+# sinon ils cassent sous WSL/Linux ("bad interpreter: /bin/bash^M")
+*.sh text eol=lf
