@@ -2,6 +2,7 @@
 build/
 sdkconfig
 sdkconfig.old
+app-colcon.meta
 dependencies.lock
 managed_components/
 

@@ -48,6 +48,14 @@ Côté SBC : voir `ros2/README.md` (agent docker, EKF, teleop).
 
 ## Reste à faire
 
-GPS RTK (navsat_transform, emplacement prévu dans ekf.yaml), coverage
-planning (opennav_coverage / Fields2Cover), contrôle lame + capteurs de
-sécurité (soulèvement, bumper), nav2.
+- **Bascule transport série → Ethernet/UDP pour le produit final** : valider
+  d'abord toute la chaîne en série sur le banc (teleop, /odom, IMU), puis
+  renseigner l'IP réelle du SBC dans `sdkconfig.eth`
+  (`CONFIG_MICRO_ROS_AGENT_IP`, actuellement placeholder 192.168.1.100) et
+  rebuilder avec `-Transport eth`. Rappel : c'est l'IP de l'AGENT (le SBC) qui
+  est figée à la compilation ; le robot prend la sienne en DHCP et initie la
+  connexion. Ethernet retenu pour le jitter (Wi-Fi exclu, cf. décisions).
+- GPS RTK (navsat_transform, emplacement prévu dans ekf.yaml).
+- Coverage planning (opennav_coverage / Fields2Cover).
+- Contrôle lame + capteurs de sécurité (soulèvement, bumper).
+- nav2.

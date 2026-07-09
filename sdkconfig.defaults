@@ -3,5 +3,14 @@ CONFIG_IDF_TARGET="esp32p4"
 # Tick FreeRTOS a 1 kHz pour un timing de boucle de controle precis
 CONFIG_FREERTOS_HZ=1000
 
+# Revision de puce : la carte EV embarque un ESP32-P4 v1.3 (echantillon
+# pre-serie). IDF v5.5 cible par defaut les puces >=v3.1 (production) et
+# refuse de flasher v1.x. On active le support des revisions <3.0 et on fixe
+# le minimum a v1.0. ATTENTION : un binaire compile ainsi ne tournera PAS sur
+# une puce v3.x — a rebasculer (ou retirer ces lignes) si passage en silicium
+# de production.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+
 # Le transport micro-ROS est choisi par profil :
 #   sdkconfig.serial (defaut) ou sdkconfig.eth — voir scripts/build.*

@@ -53,6 +53,37 @@ if ($Transport -ne $Current -and (Test-Path $Sdkconfig)) {
 }
 $Defaults = "sdkconfig.defaults;sdkconfig.$Transport"
 
+# Transport RMW de libmicroros : le colcon.meta du composant est fige sur UDP,
+# il faut le surcharger via app-colcon.meta (lu par le composant a la racine du
+# projet) : serie -> custom (UART), eth -> udp. libmicroros est construit DANS
+# le dossier du composant, donc idf.py fullclean ne suffit pas : tout changement
+# de ce fichier impose de supprimer ses artefacts pour forcer sa reconstruction.
+$RmwTransport = if ($Transport -eq "eth") { "udp" } else { "custom" }
+$MetaFile = Join-Path $Root "app-colcon.meta"
+$MetaContent = @"
+{
+    "names": {
+        "rmw_microxrcedds": {
+            "cmake-args": [
+                "-DRMW_UXRCE_TRANSPORT=$RmwTransport"
+            ]
+        }
+    }
+}
+"@
+$OldMeta = if (Test-Path $MetaFile) { [System.IO.File]::ReadAllText($MetaFile) } else { $null }
+# Etat incoherent (build interrompu) : artefacts partiels -> tout rebuilder.
+# include/rcl sert de temoin : absent = generation des headers interrompue.
+$MicroRosStale = -not ((Test-Path (Join-Path $Component "libmicroros.a")) -and
+                       (Test-Path (Join-Path $Component "include\rcl")))
+if ($OldMeta -ne $MetaContent -or $MicroRosStale) {
+    Write-Host ">> Transport RMW = $RmwTransport : reconstruction de libmicroros (long)..." -ForegroundColor Yellow
+    [System.IO.File]::WriteAllText($MetaFile, $MetaContent)
+    # Suppression DANS le conteneur : les chemins de micro_ros_src depassent
+    # MAX_PATH (260 car.), Remove-Item echoue cote Windows.
+    $SwitchCmd = "rm -rf components/micro_ros_espidf_component/{libmicroros.a,include,esp32_toolchain.cmake,micro_ros_src} && idf.py fullclean && "
+}
+
 # Deps python du build micro-ROS installees a chaque run (simple et sans etat) ;
 # set-target uniquement si sdkconfig absent, pour ne pas ecraser les choix menuconfig.
 $Setup = "pip3 install -q catkin_pkg lark-parser colcon-common-extensions 'empy==3.3.4'"
@@ -64,7 +95,7 @@ if ($Menuconfig) {
     exit $LASTEXITCODE
 }
 
-$Build = if ($Clean) { "idf.py fullclean && $Target && idf.py build" }
+$Build = if ($Clean) { "${SwitchCmd}idf.py fullclean && $Target && idf.py build" }
          else { "$SwitchCmd$Target && idf.py build" }
 
 Write-Host ">> Compilation (esp32p4, transport $Transport)..." -ForegroundColor Cyan
