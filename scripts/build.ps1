@@ -24,8 +24,10 @@ $IdfImage = "espressif/idf:release-v5.5"
 $Component = Join-Path $Root "components\micro_ros_espidf_component"
 $Sdkconfig = Join-Path $Root "sdkconfig"
 
-docker info *> $null
-if (-not $?) {
+# Redirection via cmd : en PS 5.1, rediriger le stderr d'un exe natif fabrique
+# des NativeCommandError (fatals avec EAP=Stop) meme pour un simple WARNING docker.
+cmd /c "docker info >nul 2>&1"
+if ($LASTEXITCODE -ne 0) {
     Write-Error "Docker n'est pas disponible. Lancer Docker Desktop d'abord."
 }
 

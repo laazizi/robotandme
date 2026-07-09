@@ -20,8 +20,10 @@ if (-not (Test-Path (Join-Path $BuildDir "flash_args"))) {
     Write-Error "Pas de build trouve ($BuildDir\flash_args manquant). Lancer .\scripts\build.ps1 d'abord."
 }
 
-python -m esptool version *> $null
-if (-not $?) {
+# Redirection via cmd : en PS 5.1, rediriger le stderr d'un exe natif fabrique
+# des NativeCommandError (fatals avec EAP=Stop) meme pour un simple warning.
+cmd /c "python -m esptool version >nul 2>&1"
+if ($LASTEXITCODE -ne 0) {
     Write-Error "esptool introuvable. Installer avec : pip install esptool"
 }
 
