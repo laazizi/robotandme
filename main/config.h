@@ -15,7 +15,7 @@
 
 // Encodeurs quadrature (canaux A/B). Sorties 3,3 V uniquement :
 // le P4 n'est PAS tolérant 5 V — level shifter si encodeurs 5 V.
-#define PIN_ENC_L_A       45
+#define PIN_ENC_L_A       33
 #define PIN_ENC_L_B       46
 #define PIN_ENC_R_A       47
 #define PIN_ENC_R_B       48
