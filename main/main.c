@@ -320,5 +320,22 @@ void app_main(void)
         imu_calibrate_gyro();
     }
 
+    // --- TEST BANC MOTEURS (TEMPORAIRE) : avant 1 s, arriere 1 s, stop -------
+    // Valide cablage + sens de rotation. ROBOT SUR CALES (roues en l'air).
+    // A RETIRER apres validation. Ajuste MOTOR_L/R_INVERT dans config.h si une
+    // roue tourne a l'envers ; si le robot recule au lieu d'avancer, inverse
+    // les DEUX. 0.3 = 30 % de puissance.
+    ESP_LOGW(TAG, "TEST MOTEURS : marche AVANT 1 s (roues en l'air !)");
+    motors_set(MOTOR_LEFT, 0.3f);
+    motors_set(MOTOR_RIGHT, 0.3f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    ESP_LOGW(TAG, "TEST MOTEURS : marche ARRIERE 1 s");
+    motors_set(MOTOR_LEFT, -0.3f);
+    motors_set(MOTOR_RIGHT, -0.3f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    motors_stop();
+    ESP_LOGW(TAG, "TEST MOTEURS : termine, moteurs coupes");
+    // --- FIN TEST BANC MOTEURS ----------------------------------------------
+
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);
 }
