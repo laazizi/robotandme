@@ -205,22 +205,30 @@ static void control_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
     float v_left = d_left / dt;
     float v_right = d_right / dt;
 
-    // Consigne nulle et roue quasi arrêtée : sortie 0 + reset PID,
-    // sinon l'intégrale fait frémir les moteurs à l'arrêt.
-    if (s_target_left == 0.0f && fabsf(v_left) < 0.02f) {
+    // Consigne nulle : on coupe le moteur et on reset le PID (pas de freinage
+    // actif vers 0). Sinon l'intégrale accumulée pendant la marche continue de
+    // pousser le moteur a l'arret -> la roue oscille (petit aller-retour).
+    // La roue s'arrete en roue libre, ce qui est parfait pour un diffdrive.
+    if (s_target_left == 0.0f) {
         pid_reset(&s_pid_left);
         motors_set(MOTOR_LEFT, 0.0f);
     } else {
         motors_set(MOTOR_LEFT, pid_update(&s_pid_left, s_target_left, v_left, dt));
     }
-    if (s_target_right == 0.0f && fabsf(v_right) < 0.02f) {
+    if (s_target_right == 0.0f) {
         pid_reset(&s_pid_right);
         motors_set(MOTOR_RIGHT, 0.0f);
     } else {
         motors_set(MOTOR_RIGHT, pid_update(&s_pid_right, s_target_right, v_right, dt));
     }
 
-    odom_publish();
+    // Le PID tourne à 50 Hz (fluide) mais on ne publie /odom qu'1 cycle sur
+    // ODOM_PUBLISH_DIV (-> 10 Hz) pour rester sous la limite du série 115200.
+    static int publish_div = 0;
+    if (++publish_div >= ODOM_PUBLISH_DIV) {
+        publish_div = 0;
+        odom_publish();
+    }
 }
 
 static void micro_ros_task(void *arg)
@@ -320,21 +328,47 @@ void app_main(void)
         imu_calibrate_gyro();
     }
 
-    // --- TEST BANC MOTEURS (TEMPORAIRE) : avant 1 s, arriere 1 s, stop -------
-    // Valide cablage + sens de rotation. ROBOT SUR CALES (roues en l'air).
-    // A RETIRER apres validation. Ajuste MOTOR_L/R_INVERT dans config.h si une
-    // roue tourne a l'envers ; si le robot recule au lieu d'avancer, inverse
-    // les DEUX. 0.3 = 30 % de puissance.
-    ESP_LOGW(TAG, "TEST MOTEURS : marche AVANT 1 s (roues en l'air !)");
+    // --- TEST BANC MOTEURS + DIAGNOSTIC ENCODEURS (TEMPORAIRE) --------------
+    // ROBOT SUR CALES (roues en l'air). A lire avec `idf.py monitor` (PAS
+    // l'agent : ils partagent UART0). Le test envoie une commande moteur
+    // POSITIVE puis NEGATIVE et mesure le delta de ticks de chaque encodeur.
+    //
+    // REGLE DE STABILITE (evite le runaway) : sur la phase POSITIVE, le delta
+    // de ticks de chaque roue DOIT etre POSITIF. Si un delta est negatif,
+    // mettre ENC_x_INVERT=1 pour cette roue dans config.h.
+    //
+    // REGLE DE SENS : apres correction, si +cmd_vel fait RECULER le robot,
+    // inverser les DEUX MOTOR_x_INVERT ET les DEUX ENC_x_INVERT ensemble
+    // (garde la stabilite, inverse juste la notion d'avant).
+    ESP_LOGW(TAG, "TEST : commande POSITIVE 1 s (roues en l'air !)");
+    int64_t lp0 = encoder_get_ticks(ENCODER_LEFT);
+    int64_t rp0 = encoder_get_ticks(ENCODER_RIGHT);
     motors_set(MOTOR_LEFT, 0.3f);
     motors_set(MOTOR_RIGHT, 0.3f);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGW(TAG, "TEST MOTEURS : marche ARRIERE 1 s");
+    int64_t lp1 = encoder_get_ticks(ENCODER_LEFT);
+    int64_t rp1 = encoder_get_ticks(ENCODER_RIGHT);
+    motors_stop();
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    ESP_LOGW(TAG, "TEST : commande NEGATIVE 1 s");
+    int64_t ln0 = encoder_get_ticks(ENCODER_LEFT);
+    int64_t rn0 = encoder_get_ticks(ENCODER_RIGHT);
     motors_set(MOTOR_LEFT, -0.3f);
     motors_set(MOTOR_RIGHT, -0.3f);
     vTaskDelay(pdMS_TO_TICKS(1000));
+    int64_t ln1 = encoder_get_ticks(ENCODER_LEFT);
+    int64_t rn1 = encoder_get_ticks(ENCODER_RIGHT);
     motors_stop();
-    ESP_LOGW(TAG, "TEST MOTEURS : termine, moteurs coupes");
+
+    ESP_LOGW(TAG, "==== DIAGNOSTIC ENCODEURS ====");
+    ESP_LOGW(TAG, "cmd +0.3 : delta_G=%lld  delta_D=%lld  (attendu POSITIF les deux)",
+             (long long)(lp1 - lp0), (long long)(rp1 - rp0));
+    ESP_LOGW(TAG, "cmd -0.3 : delta_G=%lld  delta_D=%lld  (attendu NEGATIF les deux)",
+             (long long)(ln1 - ln0), (long long)(rn1 - rn0));
+    ESP_LOGW(TAG, "Si un delta a le MAUVAIS signe -> ENC_x_INVERT=1 pour cette roue.");
+    ESP_LOGW(TAG, "Si delta ~0 sur une roue -> encodeur non branche / canal manquant.");
+    ESP_LOGW(TAG, "==============================");
     // --- FIN TEST BANC MOTEURS ----------------------------------------------
 
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);

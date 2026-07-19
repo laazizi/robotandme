@@ -14,3 +14,7 @@ CONFIG_ESP32P4_REV_MIN_100=y
 
 # Le transport micro-ROS est choisi par profil :
 #   sdkconfig.serial (defaut) ou sdkconfig.eth — voir scripts/build.*
+
+# ESP Hosted (WiFi sur SPI vers ESP32-C6) : desactive car on n'utilise pas le
+# WiFi (transport serie ou Ethernet). Evite un crash au boot sur IDF v5.5.
+CONFIG_ESP_HOSTED_ENABLED=n

@@ -2,6 +2,7 @@
 #include "config.h"
 
 #include "driver/pulse_cnt.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 
 #define PCNT_LIMIT 32000
@@ -32,6 +33,12 @@ static pcnt_unit_handle_t quadrature_unit_create(int gpio_a, int gpio_b, int inv
     pcnt_channel_handle_t chan_a, chan_b;
     ESP_ERROR_CHECK(pcnt_new_channel(unit, &cfg_a, &chan_a));
     ESP_ERROR_CHECK(pcnt_new_channel(unit, &cfg_b, &chan_b));
+
+    // Pull-up internes : indispensables pour encodeurs open-collector, et
+    // evitent qu'un canal debranche flotte et capte le bruit PWM 20 kHz
+    // (comptage parasite). A faire APRES pcnt_new_channel qui reconfigure la GPIO.
+    ESP_ERROR_CHECK(gpio_set_pull_mode(gpio_a, GPIO_PULLUP_ONLY));
+    ESP_ERROR_CHECK(gpio_set_pull_mode(gpio_b, GPIO_PULLUP_ONLY));
 
     // Décodage quadrature x4 : chaque front de A et de B compte,
     // le sens est donné par le niveau de l'autre canal.
