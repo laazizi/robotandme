@@ -15,13 +15,14 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
 
-    # Odometrie roues (mowbot_base) : on fusionne les VITESSES, pas la pose —
-    # sur herbe la pose derive (patinage), les vitesses restent utilisables.
+    # Odometrie roues (mowbot_base) : SEULE la vitesse d'avance vx est fusionnee.
+    # On NE prend PAS le vyaw des roues (fausse par le patinage en rotation) :
+    # le cap vient entierement du gyro (imu0 ci-dessous).
     odom0: /odom
     odom0_config: [false, false, false,
                    false, false, false,
                    true,  false, false,
-                   false, false, true,
+                   false, false, false,
                    false, false, false]
     odom0_differential: false
     odom0_queue_size: 5

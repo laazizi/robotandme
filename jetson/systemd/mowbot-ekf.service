@@ -1,0 +1,15 @@
+[Unit]
+Description=mowbot EKF (robot_localization) -> /odometry/filtered + TF
+After=multi-user.target mowbot-agent.service mowbot-razor.service
+Wants=mowbot-agent.service mowbot-razor.service
+
+[Service]
+Type=simple
+User=nvidia
+Environment=HOME=/home/nvidia
+ExecStart=/bin/bash /home/nvidia/run_ekf.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -32,8 +32,10 @@
 // TRACK_WIDTH_M est LE paramètre critique pour le cap : le
 // calibrer en faisant tourner le robot sur lui-même.
 // ============================================================
-#define WHEEL_RADIUS_M        0.08f    // rayon roue [m]  (diamètre 16 cm)
-#define TRACK_WIDTH_M         0.42f    // entraxe roues [m] (centre roue gauche → centre roue droite)
+#define WHEEL_RADIUS_M        0.075f   // rayon roue [m]  (diamètre 15 cm mesuré)
+#define TRACK_WIDTH_M         0.59f    // entraxe EFFECTIF [m] : physique 0.43 m + compensation
+                                       // du patinage en rotation (90° odom pour ~60° réel).
+                                       // A affiner : voir test rotation motion_test.py.
 #define TICKS_PER_WHEEL_REV   1920.0f  // ticks par tour de ROUE (quadrature x4, réducteur inclus)
 
 // Inversions selon câblage (1 pour inverser)

@@ -1,0 +1,14 @@
+[Unit]
+Description=mowbot micro-ROS agent (controle robot)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=nvidia
+Environment=HOME=/home/nvidia
+ExecStart=/bin/bash /home/nvidia/robot_start.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

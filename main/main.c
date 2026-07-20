@@ -6,6 +6,7 @@
 // Deadman : moteurs coupés si aucun cmd_vel depuis CMD_VEL_TIMEOUT_MS.
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -328,48 +329,59 @@ void app_main(void)
         imu_calibrate_gyro();
     }
 
-    // --- TEST BANC MOTEURS + DIAGNOSTIC ENCODEURS (TEMPORAIRE) --------------
-    // ROBOT SUR CALES (roues en l'air). A lire avec `idf.py monitor` (PAS
-    // l'agent : ils partagent UART0). Le test envoie une commande moteur
-    // POSITIVE puis NEGATIVE et mesure le delta de ticks de chaque encodeur.
-    //
-    // REGLE DE STABILITE (evite le runaway) : sur la phase POSITIVE, le delta
-    // de ticks de chaque roue DOIT etre POSITIF. Si un delta est negatif,
-    // mettre ENC_x_INVERT=1 pour cette roue dans config.h.
-    //
-    // REGLE DE SENS : apres correction, si +cmd_vel fait RECULER le robot,
-    // inverser les DEUX MOTOR_x_INVERT ET les DEUX ENC_x_INVERT ensemble
-    // (garde la stabilite, inverse juste la notion d'avant).
-    ESP_LOGW(TAG, "TEST : commande POSITIVE 1 s (roues en l'air !)");
-    int64_t lp0 = encoder_get_ticks(ENCODER_LEFT);
-    int64_t rp0 = encoder_get_ticks(ENCODER_RIGHT);
-    motors_set(MOTOR_LEFT, 0.3f);
-    motors_set(MOTOR_RIGHT, 0.3f);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    int64_t lp1 = encoder_get_ticks(ENCODER_LEFT);
-    int64_t rp1 = encoder_get_ticks(ENCODER_RIGHT);
-    motors_stop();
-    vTaskDelay(pdMS_TO_TICKS(300));
+    // --- TEST BOOT DOUX : ~1 cm avant / ~1 cm arriere (TEMPORAIRE) ---------
+    // Valide moteurs + encodeurs + sens SANS deplacement dangereux : arret en
+    // boucle fermee sur les encodeurs des ~1 cm atteint, duty faible, timeout
+    // de securite court. Affiche le delta de ticks par roue :
+    //   avance attendue = +/+ , recul attendu = -/-  (sinon revoir ENC_x_INVERT)
+    // A RETIRER une fois la calibration terminee.
+    {
+        const int64_t TARGET = (int64_t)(0.01f / METERS_PER_TICK);  // ~1 cm en ticks
+        const float DUTY = 0.2f;
+        const TickType_t TMAX = pdMS_TO_TICKS(800);   // securite si encodeur muet
 
-    ESP_LOGW(TAG, "TEST : commande NEGATIVE 1 s");
-    int64_t ln0 = encoder_get_ticks(ENCODER_LEFT);
-    int64_t rn0 = encoder_get_ticks(ENCODER_RIGHT);
-    motors_set(MOTOR_LEFT, -0.3f);
-    motors_set(MOTOR_RIGHT, -0.3f);
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    int64_t ln1 = encoder_get_ticks(ENCODER_LEFT);
-    int64_t rn1 = encoder_get_ticks(ENCODER_RIGHT);
-    motors_stop();
+        // Avance ~1 cm
+        int64_t lf0 = encoder_get_ticks(ENCODER_LEFT);
+        int64_t rf0 = encoder_get_ticks(ENCODER_RIGHT);
+        TickType_t t0 = xTaskGetTickCount();
+        motors_set(MOTOR_LEFT, DUTY);
+        motors_set(MOTOR_RIGHT, DUTY);
+        while ((xTaskGetTickCount() - t0) < TMAX) {
+            int64_t dl = llabs(encoder_get_ticks(ENCODER_LEFT) - lf0);
+            int64_t dr = llabs(encoder_get_ticks(ENCODER_RIGHT) - rf0);
+            if ((dl + dr) / 2 >= TARGET) break;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        motors_stop();
+        int64_t lf1 = encoder_get_ticks(ENCODER_LEFT);
+        int64_t rf1 = encoder_get_ticks(ENCODER_RIGHT);
+        vTaskDelay(pdMS_TO_TICKS(400));
 
-    ESP_LOGW(TAG, "==== DIAGNOSTIC ENCODEURS ====");
-    ESP_LOGW(TAG, "cmd +0.3 : delta_G=%lld  delta_D=%lld  (attendu POSITIF les deux)",
-             (long long)(lp1 - lp0), (long long)(rp1 - rp0));
-    ESP_LOGW(TAG, "cmd -0.3 : delta_G=%lld  delta_D=%lld  (attendu NEGATIF les deux)",
-             (long long)(ln1 - ln0), (long long)(rn1 - rn0));
-    ESP_LOGW(TAG, "Si un delta a le MAUVAIS signe -> ENC_x_INVERT=1 pour cette roue.");
-    ESP_LOGW(TAG, "Si delta ~0 sur une roue -> encodeur non branche / canal manquant.");
-    ESP_LOGW(TAG, "==============================");
-    // --- FIN TEST BANC MOTEURS ----------------------------------------------
+        // Recule ~1 cm
+        int64_t lb0 = encoder_get_ticks(ENCODER_LEFT);
+        int64_t rb0 = encoder_get_ticks(ENCODER_RIGHT);
+        t0 = xTaskGetTickCount();
+        motors_set(MOTOR_LEFT, -DUTY);
+        motors_set(MOTOR_RIGHT, -DUTY);
+        while ((xTaskGetTickCount() - t0) < TMAX) {
+            int64_t dl = llabs(encoder_get_ticks(ENCODER_LEFT) - lb0);
+            int64_t dr = llabs(encoder_get_ticks(ENCODER_RIGHT) - rb0);
+            if ((dl + dr) / 2 >= TARGET) break;
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+        motors_stop();
+        int64_t lb1 = encoder_get_ticks(ENCODER_LEFT);
+        int64_t rb1 = encoder_get_ticks(ENCODER_RIGHT);
+
+        ESP_LOGW(TAG, "==== TEST BOOT (~1 cm) ====");
+        ESP_LOGW(TAG, "avance : delta_G=%lld  delta_D=%lld  (attendu +/+)",
+                 (long long)(lf1 - lf0), (long long)(rf1 - rf0));
+        ESP_LOGW(TAG, "recule : delta_G=%lld  delta_D=%lld  (attendu -/-)",
+                 (long long)(lb1 - lb0), (long long)(rb1 - rb0));
+        ESP_LOGW(TAG, "cible ~%lld ticks/roue pour 1 cm", (long long)TARGET);
+        ESP_LOGW(TAG, "===========================");
+    }
+    // --- FIN TEST BOOT ------------------------------------------------------
 
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);
 }
