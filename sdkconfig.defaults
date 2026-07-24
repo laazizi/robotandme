@@ -1,20 +1,11 @@
-CONFIG_IDF_TARGET="esp32p4"
+# Reglages COMMUNS aux deux cartes supportees :
+#   esp32p4 -> Waveshare ESP32-P4-ETH        (extras : sdkconfig.defaults.esp32p4)
+#   esp32   -> ESP32-WROOM-32U DevKitC V4    (rien de special)
+# La cible est choisie par les scripts : build.sh (P4) / build_esp32.sh (WROOM).
+# IDF ajoute automatiquement sdkconfig.defaults.<target> si le fichier existe.
 
 # Tick FreeRTOS a 1 kHz pour un timing de boucle de controle precis
 CONFIG_FREERTOS_HZ=1000
 
-# Revision de puce : la carte EV embarque un ESP32-P4 v1.3 (echantillon
-# pre-serie). IDF v5.5 cible par defaut les puces >=v3.1 (production) et
-# refuse de flasher v1.x. On active le support des revisions <3.0 et on fixe
-# le minimum a v1.0. ATTENTION : un binaire compile ainsi ne tournera PAS sur
-# une puce v3.x — a rebasculer (ou retirer ces lignes) si passage en silicium
-# de production.
-CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
-CONFIG_ESP32P4_REV_MIN_100=y
-
 # Le transport micro-ROS est choisi par profil :
-#   sdkconfig.serial (defaut) ou sdkconfig.eth — voir scripts/build.*
-
-# ESP Hosted (WiFi sur SPI vers ESP32-C6) : desactive car on n'utilise pas le
-# WiFi (transport serie ou Ethernet). Evite un crash au boot sur IDF v5.5.
-CONFIG_ESP_HOSTED_ENABLED=n
+#   sdkconfig.serial (defaut) ou sdkconfig.eth (P4 uniquement) — voir scripts/

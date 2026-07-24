@@ -1,12 +1,14 @@
 [Unit]
 Description=mowbot EKF (robot_localization) -> /odometry/filtered + TF
-After=multi-user.target mowbot-agent.service mowbot-razor.service
-Wants=mowbot-agent.service mowbot-razor.service
+# Apres le reseau + apres agent et razor. sleep 8 = marge WiFi/DHCP.
+After=network-online.target mowbot-agent.service mowbot-razor.service
+Wants=network-online.target mowbot-agent.service mowbot-razor.service
 
 [Service]
 Type=simple
 User=nvidia
 Environment=HOME=/home/nvidia
+ExecStartPre=/bin/sleep 8
 ExecStart=/bin/bash /home/nvidia/run_ekf.sh
 Restart=always
 RestartSec=3

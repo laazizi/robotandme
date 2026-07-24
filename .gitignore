@@ -15,3 +15,7 @@ components/micro_ros_espidf_component/
 
 __pycache__/
 *.pyc
+
+build_esp32/
+sdkconfig.esp32board
+sdkconfig.esp32board.old

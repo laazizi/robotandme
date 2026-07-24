@@ -1,6 +1,5 @@
 [Unit]
-Description=mowbot Razor IMU -> /imu/data_raw
-# Apres le reseau (participant DDS visible du PC). sleep 8 = marge WiFi/DHCP.
+Description=mowbot robot_state_publisher (modele URDF + TF roues)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +8,7 @@ Type=simple
 User=nvidia
 Environment=HOME=/home/nvidia
 ExecStartPre=/bin/sleep 8
-ExecStart=/bin/bash /home/nvidia/run_razor.sh
+ExecStart=/bin/bash /home/nvidia/run_description.sh
 Restart=always
 RestartSec=3
 

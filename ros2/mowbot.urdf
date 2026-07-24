@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<!-- mowbot : modele fidele au robot reel.
+     - disque de base NOIR (~Ø45 cm) bas sur le sol
+     - 2 roues motrices Ø15 cm, pneus beiges/crantes
+     - roulette folle a l'AVANT
+     - boitier electronique (Jetson) sur le pont
+     - grand BAC GRIS (~Ø52 cm) sureleve au-dessus
+     - disque de LIEGE dans le bac
+     base_link au centre, a hauteur d'axe des roues (r effectif 0.07).
+     x=avant, y=gauche, z=haut. TF odom->base_link fournie par l'EKF. -->
+<robot name="mowbot">
+
+  <!-- Plateau de base : disque noir plat, ~2 cm sous l'axe des roues -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.225" length="0.012"/>
+      </geometry>
+      <material name="chassis_noir">
+        <color rgba="0.08 0.08 0.08 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Roue gauche : pneu beige crante Ø15 -->
+  <link name="wheel_left">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.075" length="0.045"/>
+      </geometry>
+      <material name="pneu_beige"><color rgba="0.82 0.72 0.55 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_left" type="fixed">
+    <parent link="base_link"/>
+    <child link="wheel_left"/>
+    <origin xyz="0 0.215 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Roue droite -->
+  <link name="wheel_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="0.075" length="0.045"/>
+      </geometry>
+      <material name="pneu_beige"><color rgba="0.82 0.72 0.55 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_right" type="fixed">
+    <parent link="base_link"/>
+    <child link="wheel_right"/>
+    <origin xyz="0 -0.215 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Moyeux noirs (esthetique : centre de roue sombre comme les jantes) -->
+  <link name="hub_left">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.048"/></geometry>
+      <material name="jante_noire"><color rgba="0.12 0.12 0.12 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="wheel_left_hub" type="fixed">
+    <parent link="wheel_left"/><child link="hub_left"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+  <link name="hub_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.045" length="0.048"/></geometry>
+      <material name="jante_noire"><color rgba="0.12 0.12 0.12 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="wheel_right_hub" type="fixed">
+    <parent link="wheel_right"/><child link="hub_right"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Roulette folle AVANT (petite roue noire) -->
+  <link name="caster_front">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.035" length="0.025"/></geometry>
+      <material name="jante_noire"><color rgba="0.12 0.12 0.12 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_caster" type="fixed">
+    <parent link="base_link"/>
+    <child link="caster_front"/>
+    <origin xyz="0.19 0 -0.035" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Boitier electronique (Jetson) sur le pont -->
+  <link name="electronics">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.12 0.09 0.05"/></geometry>
+      <material name="boitier"><color rgba="0.15 0.18 0.15 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_electronics" type="fixed">
+    <parent link="base_link"/>
+    <child link="electronics"/>
+    <origin xyz="-0.05 -0.06 0.02" rpy="0 0 0.3"/>
+  </joint>
+
+  <!-- Grand BAC GRIS sureleve (fond du bac) -->
+  <link name="bac">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.26" length="0.012"/></geometry>
+      <material name="bac_gris"><color rgba="0.38 0.40 0.43 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_bac" type="fixed">
+    <parent link="base_link"/>
+    <child link="bac"/>
+    <origin xyz="0 0 0.13" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Paroi du bac (anneau approxime par un cylindre creux visuel : tube fin) -->
+  <link name="bac_bord">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.26" length="0.07"/></geometry>
+      <material name="bac_gris_t"><color rgba="0.38 0.40 0.43 0.35"/></material>
+    </visual>
+  </link>
+  <joint name="bac_to_bord" type="fixed">
+    <parent link="bac"/>
+    <child link="bac_bord"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Disque de LIEGE dans le bac -->
+  <link name="liege">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.125" length="0.01"/></geometry>
+      <material name="liege_brun"><color rgba="0.72 0.55 0.34 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="bac_to_liege" type="fixed">
+    <parent link="bac"/>
+    <child link="liege"/>
+    <origin xyz="0.02 0.02 0.012" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Petit marqueur AVANT (discret, rouge) au bord du plateau -->
+  <link name="front_marker">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.02 0.01"/></geometry>
+      <material name="avant_rouge"><color rgba="0.85 0.15 0.1 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="base_to_front" type="fixed">
+    <parent link="base_link"/>
+    <child link="front_marker"/>
+    <origin xyz="0.21 0 -0.01" rpy="0 0 0"/>
+  </joint>
+
+</robot>

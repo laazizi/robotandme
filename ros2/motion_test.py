@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Test carre mowbot (boucle fermee sur /odom).
+"""Test aller-retour mowbot (boucle fermee sur /odometry/filtered).
 
-Parcourt un CARRE de 35 cm de cote : avancer 35 cm puis tourner 90 deg,
-a chaque coin (4 cotes). Le carre complet est repete 5 fois.
+Par cycle (x5) :
+  1. avance 50 cm
+  2. demi-tour 180 deg HORAIRE (sens des aiguilles d'une montre)
+  3. revient 50 cm
+  4. demi-tour 180 deg ANTI-HORAIRE  -> cap et position d'origine
 
-Petite vitesse. Utilise /odom pour mesurer distance et angle reels.
-Ctrl+C : arret d'urgence (envoie une consigne nulle avant de quitter).
+Ctrl+C : arret d'urgence (consigne nulle envoyee avant de quitter).
 
-Prerequis : agent micro-ROS actif sur le Jetson, memes ROS_DOMAIN_ID.
+Prerequis : services mowbot actifs sur le Jetson (agent + IMU + EKF).
 Lancement :
     source /opt/ros/jazzy/setup.bash
     export ROS_DOMAIN_ID=0
@@ -24,14 +26,14 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 
 # ---- Parametres (modifiables) ----
-LINEAR_SPEED  = 0.08                  # m/s (petite vitesse)
+LINEAR_SPEED  = 0.15                  # m/s (>= 0.12 : en dessous le PID pompe sur la friction)
 ANGULAR_SPEED = 0.5                   # rad/s
-SIDE          = 0.35                  # cote du carre : 35 cm
-CORNER        = math.radians(90.0)    # rotation a chaque coin : 90 deg
-SQUARES       = 5                     # nombre de carres
+DIST          = 0.50                  # distance aller : 50 cm
+HALF_TURN     = math.radians(180.0)   # demi-tour
+CYCLES        = 5                     # nombre d'allers-retours
 PAUSE         = 0.5                   # s entre chaque mouvement
 RATE_HZ       = 20.0                  # publication (> deadman firmware 500 ms)
-MOVE_TIMEOUT  = 20.0                  # securite : abandon d'un mouvement trop long
+MOVE_TIMEOUT  = 25.0                  # securite : abandon d'un mouvement trop long
 
 
 def norm_angle(a):
@@ -42,9 +44,11 @@ class MotionTest(Node):
     def __init__(self):
         super().__init__('motion_test')
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+        # RELIABLE pour matcher /odometry/filtered (l'EKF publie en reliable).
+        qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                          history=HistoryPolicy.KEEP_LAST, depth=10)
-        self.create_subscription(Odometry, '/odom', self._on_odom, qos)
+        # Pose fusionnee EKF : cap = gyro (insensible au patinage).
+        self.create_subscription(Odometry, '/odometry/filtered', self._on_odom, qos)
         self.x = self.y = self.yaw = None
 
     def _on_odom(self, msg):
@@ -58,10 +62,10 @@ class MotionTest(Node):
         rclpy.spin_once(self, timeout_sec=dt)
 
     def wait_odom(self):
-        self.get_logger().info('attente de /odom...')
+        self.get_logger().info('attente de /odometry/filtered...')
         while rclpy.ok() and self.x is None:
             self._spin(0.1)
-        self.get_logger().info('/odom recu.')
+        self.get_logger().info('odometrie recue.')
 
     def _publish(self, v, w):
         t = Twist()
@@ -90,26 +94,32 @@ class MotionTest(Node):
         self.get_logger().info(f'{label} distance={moved*100:.1f} cm')
 
     def turn(self, angle, label=''):
-        """Tourne de |angle| rad, sens = signe de angle (+ = gauche)."""
-        yaw0 = self.yaw
+        """Tourne de `angle` rad (signe : + = anti-horaire/gauche, - = horaire/droite).
+        Accumule les increments de cap -> gere les rotations >= 180 deg."""
         w = ANGULAR_SPEED if angle >= 0 else -ANGULAR_SPEED
         target = abs(angle)
-        t_end = time.time() + MOVE_TIMEOUT
+        prev = self.yaw
         turned = 0.0
-        while rclpy.ok() and turned < target and time.time() < t_end:
+        t_end = time.time() + MOVE_TIMEOUT
+        while rclpy.ok() and abs(turned) < target and time.time() < t_end:
             self._publish(0.0, w)
             self._spin(1.0 / RATE_HZ)
-            turned = abs(norm_angle(self.yaw - yaw0))
+            turned += norm_angle(self.yaw - prev)
+            prev = self.yaw
         self.stop()
-        self.get_logger().info(f'{label} angle={math.degrees(turned):.1f} deg')
+        self.get_logger().info(f'{label} angle={math.degrees(abs(turned)):.1f} deg')
 
     def run(self):
         self.wait_odom()
-        for s in range(1, SQUARES + 1):
-            self.get_logger().info(f'===== CARRE {s}/{SQUARES} =====')
-            for c in range(1, 5):        # 4 cotes + 4 coins
-                self.drive(+SIDE, f'  cote {c}');   time.sleep(PAUSE)
-                self.turn(+CORNER, f'  coin {c}');  time.sleep(PAUSE)
+        x_dep, y_dep = self.x, self.y
+        for c in range(1, CYCLES + 1):
+            self.get_logger().info(f'===== ALLER-RETOUR {c}/{CYCLES} =====')
+            self.drive(+DIST,      '  aller ');           time.sleep(PAUSE)
+            self.turn(-HALF_TURN,  '  demi-tour horaire');   time.sleep(PAUSE)
+            self.drive(+DIST,      '  retour');           time.sleep(PAUSE)
+            self.turn(+HALF_TURN,  '  demi-tour anti-hor');  time.sleep(PAUSE)
+            err = math.hypot(self.x - x_dep, self.y - y_dep)
+            self.get_logger().info(f'  ecart au depart : {err*100:.1f} cm')
         self.get_logger().info('===== TEST TERMINE =====')
         self.stop()
 
@@ -122,7 +132,10 @@ def main():
     except KeyboardInterrupt:
         node.get_logger().info('interruption -> arret moteurs')
     finally:
-        node.stop()
+        try:
+            node.stop()
+        except Exception:
+            pass
         node.destroy_node()
         rclpy.shutdown()
 

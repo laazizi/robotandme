@@ -1,30 +1,53 @@
 #pragma once
 
+#include "sdkconfig.h"
+
 // ============================================================
-// Broches — A ADAPTER au câblage réel. Vérifier le schéma de
-// l'ESP32-P4-Function-EV-Board : certaines GPIO sont réservées
-// (SD, MIPI, Ethernet PHY...).
+// Broches — selection AUTOMATIQUE selon la cible de compilation :
+//   idf.py set-target esp32p4  -> Waveshare ESP32-P4-ETH   (câblage valide)
+//   idf.py set-target esp32    -> ESP32-WROOM-32U DevKitC V4 (à câbler)
 // ============================================================
 
-// MDD10A rev 2.0 — canal 1 = moteur gauche, canal 2 = moteur droit
-// Logique 3,3 V directe, GND commun obligatoire avec la carte.
-// NB : sur cette Waveshare ESP32-P4-ETH, seuls les pins du header DROIT sont
-// reellement libres (le header gauche est reserve SD/camera/C6). Tout ici.
-#define PIN_MOTOR_L_PWM   20
-#define PIN_MOTOR_L_DIR   21
-#define PIN_MOTOR_R_PWM   22
-#define PIN_MOTOR_R_DIR   23
+#if CONFIG_IDF_TARGET_ESP32P4
+// ---------- Waveshare ESP32-P4-ETH (câblage VALIDE au banc) ----------
+// MDD10A rev 2.0. Seuls les pins du header DROIT sont libres (le gauche est
+// reserve SD/camera/C6). GPIO46 MORT, GPIO48 inaccessible.
+// M1/M2 etaient inverses vs realite physique -> L = canal M2.
+#define PIN_MOTOR_L_PWM   22
+#define PIN_MOTOR_L_DIR   23
+#define PIN_MOTOR_R_PWM   20
+#define PIN_MOTOR_R_DIR   21
 
-// Encodeurs quadrature (canaux A/B). Sorties 3,3 V uniquement :
-// le P4 n'est PAS tolérant 5 V — level shifter si encodeurs 5 V.
-#define PIN_ENC_L_A       33     // Bleu
-#define PIN_ENC_L_B       32     // Orange (GPIO46 mort -> 32 a tester)
-#define PIN_ENC_R_A       47     // Bleu
-#define PIN_ENC_R_B       48     // Orange
+#define PIN_ENC_L_A       27     // Bleu
+#define PIN_ENC_L_B       47     // Orange
+#define PIN_ENC_R_A       33     // Bleu
+#define PIN_ENC_R_B       32     // Orange
 
-// IMU ICM-42688-P en I2C (adresse 0x68 si AD0 à GND, 0x69 sinon)
 #define PIN_IMU_SDA       7
 #define PIN_IMU_SCL       8
+
+#else
+// ---------- ESP32-WROOM-32U DevKitC V4 (variante à valider au banc) ----------
+// Pins choisis pour eviter les pieges du classique :
+//  - PAS de 6..11 (flash SPI), PAS de 0/2/12/15 (strapping au boot),
+//  - PAS de 34..39 pour les encodeurs (input-only SANS pull-up interne,
+//    or nos encodeurs open-collector exigent les pull-ups internes),
+//  - I2C sur les pins standard 21/22.
+#define PIN_MOTOR_L_PWM   25
+#define PIN_MOTOR_L_DIR   26
+#define PIN_MOTOR_R_PWM   16
+#define PIN_MOTOR_R_DIR   17
+
+#define PIN_ENC_L_A       32     // Bleu   (pull-up interne OK)
+#define PIN_ENC_L_B       33     // Orange
+#define PIN_ENC_R_A       18     // Bleu
+#define PIN_ENC_R_B       19     // Orange
+
+#define PIN_IMU_SDA       21
+#define PIN_IMU_SCL       22
+#endif
+
+// IMU ICM-42688-P en I2C (adresse 0x68 si AD0 à GND, 0x69 sinon)
 #define IMU_I2C_ADDR      0x68
 
 // ============================================================
@@ -32,17 +55,21 @@
 // TRACK_WIDTH_M est LE paramètre critique pour le cap : le
 // calibrer en faisant tourner le robot sur lui-même.
 // ============================================================
-#define WHEEL_RADIUS_M        0.075f   // rayon roue [m]  (diamètre 15 cm mesuré)
+#define WHEEL_RADIUS_M        0.0698f  // rayon EFFECTIF [m] : nominal 0.075 (Ø15) corrige
+                                       // par calibration au sol (odom 29 cm pour 27 reels,
+                                       // pneu ecrase sous charge -> rayon de roulement reduit).
 #define TRACK_WIDTH_M         0.59f    // entraxe EFFECTIF [m] : physique 0.43 m + compensation
                                        // du patinage en rotation (90° odom pour ~60° réel).
                                        // A affiner : voir test rotation motion_test.py.
-#define TICKS_PER_WHEEL_REV   1920.0f  // ticks par tour de ROUE (quadrature x4, réducteur inclus)
+#define TICKS_PER_WHEEL_REV   2560.0f  // ticks par tour de ROUE (quadrature x4, réducteur inclus)
+                                       // Calibre au sol (odom 301 cm pour 30 cm reels avec 256)
+                                       // => 256 x 301/30 = 2571 ~ 2560 (64 CPR x4 x reducteur 10:1).
 
 // Inversions selon câblage (1 pour inverser)
 #define MOTOR_L_INVERT    0
 #define MOTOR_R_INVERT    0
-#define ENC_L_INVERT      1
-#define ENC_R_INVERT      0
+#define ENC_L_INVERT      0      // suit l'echange L<->R (ex-droit, pins 27/47)
+#define ENC_R_INVERT      1      // suit l'echange L<->R (ex-gauche, pins 33/32)
 
 // ============================================================
 // Contrôle
@@ -59,3 +86,8 @@
 #define PID_KP  0.8f
 #define PID_KI  2.0f
 #define PID_KD  0.0f
+
+// Test banc au boot (fait tourner chaque roue 2 s + 30 s compteurs a la main).
+// 1 = banc de diagnostic (via banc.sh). 0 = boot normal SANS bouger les roues
+// (obligatoire des que le robot est au sol : 40 s de roues qui tournent sinon).
+#define BOOT_BENCH_TEST 0

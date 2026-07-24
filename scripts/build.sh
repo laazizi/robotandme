@@ -22,6 +22,15 @@ fi
 ACTION="${1:-build}"
 TRANSPORT="${2:-}"
 
+# La lib micro-ROS est compilee PAR CIBLE : si le dernier build etait pour
+# l'ESP32 classique (build_esp32.sh), la reconstruire pour le P4.
+MARKER="$COMPONENT/.microros_target"
+if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" != "esp32p4" ]; then
+    echo ">> Cible precedente: $(cat "$MARKER") -> nettoyage libmicroros pour esp32p4..."
+    rm -rf "$COMPONENT/libmicroros.a" "$COMPONENT/libmicroros" \
+           "$COMPONENT/micro_ros_src" "$COMPONENT/include" "$COMPONENT/micro_ros_dev" "$COMPONENT/esp32_toolchain.cmake" build
+fi
+
 # Transport courant lu dans sdkconfig ; defaut = serie
 CURRENT="serial"
 if [ -f sdkconfig ] && grep -q '^CONFIG_MICRO_ROS_ESP_NETIF_ENET=y' sdkconfig; then
@@ -44,3 +53,5 @@ case "$ACTION" in
     menuconfig) idf.py menuconfig ;;
     *)          idf.py build ;;
 esac
+
+echo "esp32p4" > "$MARKER"

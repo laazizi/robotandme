@@ -206,10 +206,9 @@ static void control_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
     float v_left = d_left / dt;
     float v_right = d_right / dt;
 
-    // Consigne nulle : on coupe le moteur et on reset le PID (pas de freinage
-    // actif vers 0). Sinon l'intégrale accumulée pendant la marche continue de
-    // pousser le moteur a l'arret -> la roue oscille (petit aller-retour).
-    // La roue s'arrete en roue libre, ce qui est parfait pour un diffdrive.
+    // PID vitesse par roue (encodeurs calibres et fiables depuis le passage
+    // au banc). Consigne nulle : moteur coupe + reset PID (pas de freinage
+    // actif -> pas d'oscillation a l'arret, l'integrale ne pousse plus).
     if (s_target_left == 0.0f) {
         pid_reset(&s_pid_left);
         motors_set(MOTOR_LEFT, 0.0f);
@@ -303,6 +302,51 @@ static void micro_ros_task(void *arg)
     }
 }
 
+// --- TEST BANC AU BOOT (active par BOOT_BENCH_TEST dans config.h) ------------
+// Fait tourner UNE roue a la fois (2 s avant, 2 s arriere) et logge le delta
+// de ticks des DEUX encodeurs a chaque phase.
+#if BOOT_BENCH_TEST
+static void boot_test_phase(const char *nom, motor_id_t motor, float duty)
+{
+    const TickType_t DUREE = pdMS_TO_TICKS(2000);
+    int64_t g0 = encoder_get_ticks(ENCODER_LEFT);
+    int64_t d0 = encoder_get_ticks(ENCODER_RIGHT);
+    motors_set(motor, duty);
+    vTaskDelay(DUREE);
+    motors_stop();
+    int64_t dg = encoder_get_ticks(ENCODER_LEFT) - g0;
+    int64_t dd = encoder_get_ticks(ENCODER_RIGHT) - d0;
+    ESP_LOGW(TAG, "%-16s : enc_G=%+6lld  enc_D=%+6lld",
+             nom, (long long)dg, (long long)dd);
+    vTaskDelay(pdMS_TO_TICKS(500));
+}
+
+static void boot_test_run(void)
+{
+    const float DUTY = 0.25f;
+    ESP_LOGW(TAG, "==== TEST BANC PAR ROUE (2 s/phase, roues en l'air !) ====");
+    ESP_LOGW(TAG, "attendu : la roue testee compte FORT (+ en avant, - en arriere),");
+    ESP_LOGW(TAG, "          l'autre encodeur reste ~0. Sinon : 0=muet, signe=INVERT,");
+    ESP_LOGW(TAG, "          mauvais compteur=cables croises G/D.");
+    boot_test_phase("G avant  (+)", MOTOR_LEFT,  +DUTY);
+    boot_test_phase("G arriere(-)", MOTOR_LEFT,  -DUTY);
+    boot_test_phase("D avant  (+)", MOTOR_RIGHT, +DUTY);
+    boot_test_phase("D arriere(-)", MOTOR_RIGHT, -DUTY);
+
+    // Phase "a la main" : 30 s d'affichage des compteurs bruts, 1 fois/s.
+    // Tournez les roues a la main et regardez les valeurs bouger.
+    ESP_LOGW(TAG, "---- TEST A LA MAIN : tournez les roues (30 s) ----");
+    for (int i = 0; i < 30; i++) {
+        ESP_LOGW(TAG, "t=%2ds  enc_G=%+8lld  enc_D=%+8lld", i,
+                 (long long)encoder_get_ticks(ENCODER_LEFT),
+                 (long long)encoder_get_ticks(ENCODER_RIGHT));
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    ESP_LOGW(TAG, "==== FIN TEST BANC ====");
+}
+#endif  // BOOT_BENCH_TEST
+// -----------------------------------------------------------------------------
+
 void app_main(void)
 {
 #if defined(RMW_UXRCE_TRANSPORT_CUSTOM)
@@ -331,56 +375,13 @@ void app_main(void)
 
     // --- TEST BOOT DOUX : ~1 cm avant / ~1 cm arriere (TEMPORAIRE) ---------
     // Valide moteurs + encodeurs + sens SANS deplacement dangereux : arret en
-    // boucle fermee sur les encodeurs des ~1 cm atteint, duty faible, timeout
-    // de securite court. Affiche le delta de ticks par roue :
-    //   avance attendue = +/+ , recul attendu = -/-  (sinon revoir ENC_x_INVERT)
-    // A RETIRER une fois la calibration terminee.
-    {
-        const int64_t TARGET = (int64_t)(0.01f / METERS_PER_TICK);  // ~1 cm en ticks
-        const float DUTY = 0.2f;
-        const TickType_t TMAX = pdMS_TO_TICKS(800);   // securite si encodeur muet
-
-        // Avance ~1 cm
-        int64_t lf0 = encoder_get_ticks(ENCODER_LEFT);
-        int64_t rf0 = encoder_get_ticks(ENCODER_RIGHT);
-        TickType_t t0 = xTaskGetTickCount();
-        motors_set(MOTOR_LEFT, DUTY);
-        motors_set(MOTOR_RIGHT, DUTY);
-        while ((xTaskGetTickCount() - t0) < TMAX) {
-            int64_t dl = llabs(encoder_get_ticks(ENCODER_LEFT) - lf0);
-            int64_t dr = llabs(encoder_get_ticks(ENCODER_RIGHT) - rf0);
-            if ((dl + dr) / 2 >= TARGET) break;
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-        motors_stop();
-        int64_t lf1 = encoder_get_ticks(ENCODER_LEFT);
-        int64_t rf1 = encoder_get_ticks(ENCODER_RIGHT);
-        vTaskDelay(pdMS_TO_TICKS(400));
-
-        // Recule ~1 cm
-        int64_t lb0 = encoder_get_ticks(ENCODER_LEFT);
-        int64_t rb0 = encoder_get_ticks(ENCODER_RIGHT);
-        t0 = xTaskGetTickCount();
-        motors_set(MOTOR_LEFT, -DUTY);
-        motors_set(MOTOR_RIGHT, -DUTY);
-        while ((xTaskGetTickCount() - t0) < TMAX) {
-            int64_t dl = llabs(encoder_get_ticks(ENCODER_LEFT) - lb0);
-            int64_t dr = llabs(encoder_get_ticks(ENCODER_RIGHT) - rb0);
-            if ((dl + dr) / 2 >= TARGET) break;
-            vTaskDelay(pdMS_TO_TICKS(5));
-        }
-        motors_stop();
-        int64_t lb1 = encoder_get_ticks(ENCODER_LEFT);
-        int64_t rb1 = encoder_get_ticks(ENCODER_RIGHT);
-
-        ESP_LOGW(TAG, "==== TEST BOOT (~1 cm) ====");
-        ESP_LOGW(TAG, "avance : delta_G=%lld  delta_D=%lld  (attendu +/+)",
-                 (long long)(lf1 - lf0), (long long)(rf1 - rf0));
-        ESP_LOGW(TAG, "recule : delta_G=%lld  delta_D=%lld  (attendu -/-)",
-                 (long long)(lb1 - lb0), (long long)(rb1 - rb0));
-        ESP_LOGW(TAG, "cible ~%lld ticks/roue pour 1 cm", (long long)TARGET);
-        ESP_LOGW(TAG, "===========================");
-    }
+    // Chaque roue testee SEPAREMENT : 2 s en avant puis 2 s en arriere, en
+    // affichant les compteurs des DEUX encodeurs a chaque phase, puis 30 s de
+    // compteurs pour test a la main. Active par BOOT_BENCH_TEST (config.h),
+    // a flasher via banc.sh. ROUES EN L'AIR !
+#if BOOT_BENCH_TEST
+    boot_test_run();
+#endif
     // --- FIN TEST BOOT ------------------------------------------------------
 
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);
