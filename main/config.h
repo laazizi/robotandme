@@ -61,17 +61,19 @@
 //  - PAS de 34..39 pour les encodeurs (input-only SANS pull-up interne,
 //    or nos encodeurs open-collector exigent les pull-ups internes),
 //  - I2C sur les pins standard 21/22.
-#define PIN_MOTOR_L_PWM   25
-#define PIN_MOTOR_L_DIR   26
-#define PIN_MOTOR_R_PWM   16
-#define PIN_MOTOR_R_DIR   17
+// SENS DE MARCHE INVERSE en logiciel (l'ancien arriere devient l'avant) :
+// il faut ECHANGER les roles G<->D **et** inverser les deux moteurs. Inverser
+// seulement les moteurs retournerait aussi le sens de rotation (gauche<->droite).
+#define PIN_MOTOR_L_PWM   16     // ex-droit
+#define PIN_MOTOR_L_DIR   17
+#define PIN_MOTOR_R_PWM   25     // ex-gauche
+#define PIN_MOTOR_R_DIR   26
 
-// Encodeurs CROISES vs moteurs sur ce chassis (mesure : en virage, chaque PID
-// s'emballait car son capteur etait sur l'AUTRE roue) -> groupes echanges.
-#define PIN_ENC_L_A       18     // Bleu   (roue du moteur L : pins 25/26)
-#define PIN_ENC_L_B       19     // Orange
-#define PIN_ENC_R_A       32     // Bleu   (roue du moteur R : pins 16/17)
-#define PIN_ENC_R_B       33     // Orange
+// Encodeurs : chacun suit SON moteur (groupes echanges de la meme facon).
+#define PIN_ENC_L_A       32     // Bleu   (roue du moteur L : pins 16/17)
+#define PIN_ENC_L_B       33     // Orange
+#define PIN_ENC_R_A       18     // Bleu   (roue du moteur R : pins 25/26)
+#define PIN_ENC_R_B       19     // Orange
 
 #define PIN_IMU_SDA       21
 #define PIN_IMU_SCL       22
@@ -83,10 +85,12 @@
                                        // gauche 3292, droite 3091 -> ~3200
                                        // = 160 CPR x4 quadrature x reducteur 5:1
 
-#define MOTOR_L_INVERT    0
-#define MOTOR_R_INVERT    0
-#define ENC_L_INVERT      0      // suit l'echange des groupes (ex-R, pins 18/19)
-#define ENC_R_INVERT      1      // suit l'echange des groupes (ex-L, pins 32/33)
+// Les DEUX moteurs inverses (avec l'echange G<->D ci-dessus = marche inversee).
+#define MOTOR_L_INVERT    1
+#define MOTOR_R_INVERT    1
+// Chaque encodeur garde la coherence avec SON moteur : signe precedent inverse.
+#define ENC_L_INVERT      0      // ex-R (etait 1) -> inverse -> 0
+#define ENC_R_INVERT      1      // ex-L (etait 0) -> inverse -> 1
 
 // -- dynamique robot 24 V : moteurs a fort couple TRES LENTS --
 // Vitesse max MESUREE a pleine puissance : 0.055 m/s (7.5 tr/min roue).

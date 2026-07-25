@@ -1,0 +1,18 @@
+/lslidar_driver_node:
+  ros__parameters:
+    frame_id: laser_link
+    lidar_name: N10
+    interface_selection: serial
+    serial_port_: /dev/mowbot_lidar
+    scan_topic: /scan
+    angle_disable_min: 0.0
+    angle_disable_max: 0.0
+    min_range: 0.05
+    max_range: 15.0
+    use_gps_ts: false
+    high_reflection: false
+    compensation: false
+    pubScan: true
+    pubPointCloud2: false
+    group_ip: 224.1.1.2
+    add_multicast: false
