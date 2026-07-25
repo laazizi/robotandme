@@ -71,13 +71,15 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.02
-      # Contour REEL (base_link = milieu de l'essieu). Le robot n'est PAS un
-      # disque : entraxe roues 0.48 (0.53 hors tout avec les pneus) et un
-      # debord ARRIERE de 10 cm. Un robot_radius unique obligerait a prendre
-      # 0.34 partout, soit 12 cm de bourrelet inutile a l'avant et sur les
-      # cotes -> passages refuses sans raison. Indispensable maintenant que la
-      # marche arriere est autorisee : l'arriere doit etre protege pour de vrai.
-      footprint: "[[0.24, 0.10], [0.10, 0.27], [-0.20, 0.27], [-0.34, 0.15], [-0.34, -0.15], [-0.20, -0.27], [0.10, -0.27], [0.24, -0.10]]"
+      # Contour REEL (base_link = milieu de l'essieu), releve sur photo :
+      #   - disque bois rayon 0.22
+      #   - point le plus large = les PNEUS, +/-0.26 (entraxe 0.48 + largeur roue)
+      #   - petite languette arriere portant la roulette : -0.27, sur 15 cm large
+      # Un robot_radius unique devrait couvrir 0.27 partout, soit 5 cm de
+      # bourrelet inutile tout autour -> passages refuses sans raison. Utile
+      # aussi maintenant que la marche arriere est autorisee : la languette
+      # est protegee sans elargir l'arriere.
+      footprint: "[[0.22, 0.10], [0.08, 0.26], [-0.08, 0.26], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.26], [0.08, -0.26], [0.22, -0.10]]"
       footprint_padding: 0.02
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
@@ -102,7 +104,10 @@ local_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.10
+        # 5 cm : le footprint polygonal decrit deja la taille REELLE du robot
+        # (+2 cm de padding), l'inflation n'est plus la que pour lisser la
+        # trajectoire. A 10 cm elle refusait des passages franchissables.
+        inflation_radius: 0.05
         cost_scaling_factor: 5.0
       always_send_full_costmap: True
 
@@ -115,7 +120,7 @@ global_costmap:
       robot_base_frame: base_link
       resolution: 0.02
       # meme contour reel que le local_costmap (cf. commentaire plus haut)
-      footprint: "[[0.24, 0.10], [0.10, 0.27], [-0.20, 0.27], [-0.34, 0.15], [-0.34, -0.15], [-0.20, -0.27], [0.10, -0.27], [0.24, -0.10]]"
+      footprint: "[[0.22, 0.10], [0.08, 0.26], [-0.08, 0.26], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.26], [0.08, -0.26], [0.22, -0.10]]"
       footprint_padding: 0.02
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -140,7 +145,10 @@ global_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.10
+        # 5 cm : le footprint polygonal decrit deja la taille REELLE du robot
+        # (+2 cm de padding), l'inflation n'est plus la que pour lisser la
+        # trajectoire. A 10 cm elle refusait des passages franchissables.
+        inflation_radius: 0.05
         cost_scaling_factor: 5.0
       always_send_full_costmap: True
 

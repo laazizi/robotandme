@@ -28,17 +28,19 @@
     </visual>
   </link>
 
-  <!-- Rallonge ARRIERE (+10 cm) : le robot n'est plus un disque, il deborde
-       derriere l'essieu. C'est ce debord que le footprint nav2 protege. -->
+  <!-- Petite languette ARRIERE en bois (celle qui porte la roulette folle) :
+       deborde de ~5 cm du disque, sur ~15 cm de large seulement. C'est le seul
+       endroit ou le robot n'est pas un disque -> le footprint nav2 la reprend
+       telle quelle plutot que d'elargir tout l'arriere. -->
   <link name="rear_ext">
     <visual>
-      <geometry><box size="0.10 0.30 0.018"/></geometry>
+      <geometry><box size="0.05 0.15 0.018"/></geometry>
       <material name="bois"/>
     </visual>
   </link>
   <joint name="base_to_rear_ext" type="fixed">
     <parent link="base_link"/><child link="rear_ext"/>
-    <origin xyz="-0.27 0 -0.02"/>
+    <origin xyz="-0.245 0 -0.02"/>
   </joint>
 
   <!-- ===== Roues motrices (pneus blancs) ===== -->
