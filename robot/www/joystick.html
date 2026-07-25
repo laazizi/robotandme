@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>mowbot joystick</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; background:#1c1e22; color:#dfe3e8; font-family:system-ui,sans-serif;
+         display:flex; flex-direction:column; align-items:center; gap:14px;
+         min-height:100vh; justify-content:center; touch-action:none; }
+  h1 { font-size:1.1rem; margin:0; }
+  #bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
+  input { background:#2a2d33; color:#dfe3e8; border:1px solid #444; border-radius:6px;
+          padding:8px 10px; font-size:1rem; width:150px; }
+  button { background:#2f6feb; color:white; border:0; border-radius:6px;
+           padding:9px 16px; font-size:1rem; cursor:pointer; }
+  button:disabled { background:#555; }
+  #status { font-size:.9rem; opacity:.85; }
+  #pad { width:min(94vw,560px); height:min(94vw,560px); border-radius:50%;
+         background:radial-gradient(circle at 50% 45%, #2c3038, #23262b 70%);
+         border:2px solid #3a3f47; position:relative; touch-action:none; }
+  #stick { width:26%; height:26%; border-radius:50%; position:absolute;
+           left:37%; top:37%; background:radial-gradient(circle at 40% 35%, #6ea8ff, #2f6feb);
+           box-shadow:0 4px 14px rgba(0,0,0,.5); }
+  #vals { font-family:ui-monospace,monospace; font-size:.95rem; }
+  #hint { font-size:.8rem; opacity:.6; max-width:340px; text-align:center; }
+</style>
+</head>
+<body>
+<h1>🚜 mowbot — joystick</h1>
+<div id="bar">
+  <input id="ip" value="192.168.1.26" placeholder="IP du Jetson">
+  <button id="btn" onclick="connect()">Connecter</button>
+  <label style="font-size:.9rem">Vmax
+    <input id="vmax" type="number" value="0.5" min="0.2" max="1.0" step="0.1"
+           style="width:70px" title="vitesse max (m/s) en butee du pad">
+  </label>
+</div>
+<div id="status">déconnecté</div>
+<div id="pad"><div id="stick"></div></div>
+<div id="vals">v = 0.00 m/s&nbsp;&nbsp;w = 0.00 rad/s</div>
+<div id="hint">Haut/bas = avancer/reculer • gauche/droite = tourner.
+La zone morte de friction est compensée : dès ~15% de déflexion, le robot
+démarre à sa vitesse mini utile.</div>
+
+<script>
+// ---- parametres adaptes au mowbot (friction statique des moteurs) ----
+const V_MIN = 0.13;                 // m/s   : plancher (friction statique)
+const W_MIN = 0.40;                 // rad/s : plancher rotation
+function vmax() { return parseFloat(document.getElementById('vmax').value) || 0.5; }
+function wmax() { return Math.min(1.5, vmax() * 1.8); }   // rotation proportionnelle
+const DEAD  = 0.15;                 // deflexion sous laquelle on envoie 0
+const RATE  = 10;                   // Hz d'envoi (deadman firmware = 500 ms)
+
+let ws = null, timer = null;
+let vx = 0, wz = 0;
+
+const st = document.getElementById('status');
+const btn = document.getElementById('btn');
+
+function connect() {
+  const ip = document.getElementById('ip').value.trim();
+  st.textContent = 'connexion à ws://' + ip + ':9090 ...';
+  btn.disabled = true;
+  ws = new WebSocket('ws://' + ip + ':9090');
+  ws.onopen = () => {
+    ws.send(JSON.stringify({op:'advertise', topic:'/cmd_vel',
+                            type:'geometry_msgs/Twist'}));
+    st.textContent = '✅ connecté — pilote !';
+    btn.textContent = 'Reconnecter';
+    btn.disabled = false;
+    if (timer) clearInterval(timer);
+    timer = setInterval(send, 1000 / RATE);
+  };
+  ws.onclose = () => { st.textContent = '❌ déconnecté'; btn.disabled = false;
+                       if (timer) { clearInterval(timer); timer = null; } };
+  ws.onerror = () => { st.textContent = '❌ erreur de connexion (IP ? rosbridge ?)'; };
+}
+
+// Ne publie QUE pendant l'utilisation du pad (+ ~0,6 s de zeros au
+// relachement pour stopper net). Sinon SILENCE : ainsi la page peut rester
+// ouverte sans se battre avec un autre pilote (ros2 pub, nav2...) sur
+// /cmd_vel — c'etait la cause d'a-coups (gaz/stop en alternance).
+let zeroBurst = 0;
+function send() {
+  if (!ws || ws.readyState !== 1) return;
+  const active = (vx !== 0 || wz !== 0);
+  if (active) { zeroBurst = 6; }               // 6 cycles de zeros apres usage
+  else if (zeroBurst > 0) { zeroBurst--; }
+  else { return; }                             // pad au repos -> on se tait
+  ws.send(JSON.stringify({op:'publish', topic:'/cmd_vel',
+    msg:{linear:{x:vx, y:0, z:0}, angular:{x:0, y:0, z:wz}}}));
+}
+
+// deflexion (-1..1) -> vitesse : saut au-dessus de la zone morte, puis courbe
+// QUADRATIQUE (t^2) : la majorite de la course reste douce, la pleine vitesse
+// n'arrive qu'en butee -> pilotage par moderation.
+function scale(d, vmin, vmax) {
+  const a = Math.abs(d);
+  if (a < DEAD) return 0;
+  const t = (a - DEAD) / (1 - DEAD);          // 0..1
+  const p = t * t;                            // progressif : mi-course = 25% de la plage
+  return Math.sign(d) * (vmin + p * (vmax - vmin));
+}
+
+// ---- joystick tactile/souris ----
+const pad = document.getElementById('pad');
+const stick = document.getElementById('stick');
+const vals = document.getElementById('vals');
+let dragging = false;
+
+function setStick(nx, ny) {   // nx,ny dans -1..1 (y vers le haut)
+  const r = Math.hypot(nx, ny);
+  if (r > 1) { nx /= r; ny /= r; }
+  stick.style.left = (37 + nx * 37) + '%';
+  stick.style.top  = (37 - ny * 37) + '%';
+  vx = scale(ny, V_MIN, vmax());
+  wz = scale(-nx, W_MIN, wmax());  // pousser a gauche = tourner a gauche (+z)
+  vals.textContent = 'v = ' + vx.toFixed(2) + ' m/s  w = ' + wz.toFixed(2) + ' rad/s';
+}
+
+function evtPos(e) {
+  const rect = pad.getBoundingClientRect();
+  const p = e.touches ? e.touches[0] : e;
+  const nx = ((p.clientX - rect.left) / rect.width) * 2 - 1;
+  const ny = -(((p.clientY - rect.top) / rect.height) * 2 - 1);
+  return [nx, ny];
+}
+
+function start(e) { dragging = true; move(e); e.preventDefault(); }
+function move(e)  { if (!dragging) return; const [x, y] = evtPos(e); setStick(x, y); e.preventDefault(); }
+function stop(e)  { dragging = false; setStick(0, 0); e.preventDefault(); }
+
+pad.addEventListener('mousedown', start);  window.addEventListener('mousemove', move);
+window.addEventListener('mouseup', stop);
+pad.addEventListener('touchstart', start, {passive:false});
+pad.addEventListener('touchmove', move, {passive:false});
+pad.addEventListener('touchend', stop, {passive:false});
+</script>
+</body>
+</html>

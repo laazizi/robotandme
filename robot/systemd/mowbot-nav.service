@@ -1,0 +1,15 @@
+[Unit]
+Description=mowbot navigation (SLAM + nav2)
+After=network-online.target mowbot-lidar.service mowbot-ekf.service mowbot-tf.service
+Wants=network-online.target mowbot-lidar.service mowbot-ekf.service mowbot-tf.service
+
+[Service]
+Type=oneshot
+User=__USER__
+Environment=HOME=__HOME__
+ExecStartPre=/bin/sleep 25
+ExecStart=/bin/bash __HOME__/mowbot/bin/start_nav.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,45 @@
+#!/bin/bash
+# ============================================================================
+#  mowbot — commande unique du robot.  Usage :  mowbot <action>
+# ============================================================================
+BIN="$(dirname "$(readlink -f "$0")")"
+source "$BIN/mowbot_env.sh"
+
+case "${1:-help}" in
+  up)          bash "$BIN/robot_up.sh" ;;
+  status|st)   bash "$BIN/robot_status.sh" ;;
+  nav)         bash "$BIN/start_nav.sh" ;;
+  slam)        bash "$BIN/restart_slam.sh" ;;
+  save-map)    shift; bash "$BIN/save_map.sh" "$@" ;;
+  new-map)     bash "$BIN/new_map.sh" ;;
+  detect)      sudo bash "$BIN/detect_devices.sh" ;;
+  devices)     bash "$BIN/detect_devices.sh" --dry-run ;;
+  self-check)  bash "$BIN/run_node.sh" detect_self.py ;;
+  logs)        journalctl -u "mowbot-${2:-nav}" -f ;;
+  restart)     shift; for s in "$@"; do sudo systemctl restart "mowbot-$s"; done ;;
+  stop-all)    sudo systemctl stop mowbot-nav mowbot-agent mowbot-lidar mowbot-razor \
+                 mowbot-ekf mowbot-tf mowbot-description mowbot-rosbridge mowbot-web ;;
+  node)        shift; bash "$BIN/run_node.sh" "$@" ;;
+  *)
+    cat <<'H'
+mowbot — commandes du robot
+
+  mowbot up            tout demarrer (services + navigation) et verifier
+  mowbot status        etat complet (services, topics, carte, peripheriques)
+  mowbot nav           (re)demarrer la navigation seule
+  mowbot slam          relancer le SLAM seul
+
+  mowbot new-map       archiver la carte et repartir en CARTOGRAPHIE
+  mowbot save-map      sauvegarder la carte courante
+
+  mowbot detect        identifier les USB et ecrire les regles udev (sudo)
+  mowbot devices       idem, sans rien ecrire (diagnostic)
+  mowbot self-check    secteurs ou le lidar se voit lui-meme
+
+  mowbot node X.py     lancer un noeud/outil (motion_test.py, calib_1m.py...)
+  mowbot logs [svc]    suivre les logs (defaut : nav)
+  mowbot restart A B   redemarrer des services (ex : mowbot restart agent lidar)
+  mowbot stop-all      tout arreter
+H
+    ;;
+esac

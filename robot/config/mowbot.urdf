@@ -1,0 +1,175 @@
+<?xml version="1.0"?>
+<!-- mowbot — modele fidele au chassis actuel (photos) :
+     - plateau de base ROND en BOIS clair (~Ø44 cm)
+     - 2 roues motrices Ø15 cm, pneus BLANCS + jantes noires
+     - roulette folle a l'arriere
+     - 4 montants en bois soutenant un plateau ALU en etage (~27 cm)
+     - LIDAR LSLidar N10 (noir) sur le plateau alu, 10 cm devant le centre,
+       28 cm de haut -> correspond a la TF base_link->laser_link
+     - batterie bleue + electronique (MDD10A, DevKitC) sur la base
+     base_link : centre du robot, a hauteur d'axe des roues. x = AVANT
+     (cote lidar, apres inversion logicielle du sens de marche). -->
+<robot name="mowbot">
+
+  <material name="bois">      <color rgba="0.85 0.72 0.50 1.0"/></material>
+  <material name="alu">       <color rgba="0.75 0.76 0.78 1.0"/></material>
+  <material name="pneu_blanc"><color rgba="0.93 0.93 0.90 1.0"/></material>
+  <material name="noir">      <color rgba="0.11 0.11 0.12 1.0"/></material>
+  <material name="bleu_batt"> <color rgba="0.13 0.34 0.75 1.0"/></material>
+  <material name="vert_pcb">  <color rgba="0.10 0.45 0.20 1.0"/></material>
+  <material name="rouge">     <color rgba="0.85 0.15 0.10 1.0"/></material>
+
+  <!-- ===== Plateau de base : disque de bois ===== -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 -0.02" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.22" length="0.018"/></geometry>
+      <material name="bois"/>
+    </visual>
+  </link>
+
+  <!-- ===== Roues motrices (pneus blancs) ===== -->
+  <link name="wheel_left">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.045"/></geometry>
+      <material name="pneu_blanc"/>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_left" type="fixed">
+    <parent link="base_link"/><child link="wheel_left"/>
+    <origin xyz="0 0.215 0" rpy="0 0 0"/>
+  </joint>
+  <link name="hub_left">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.042" length="0.048"/></geometry>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="wheel_left_hub" type="fixed">
+    <parent link="wheel_left"/><child link="hub_left"/><origin xyz="0 0 0"/>
+  </joint>
+
+  <link name="wheel_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.075" length="0.045"/></geometry>
+      <material name="pneu_blanc"/>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_right" type="fixed">
+    <parent link="base_link"/><child link="wheel_right"/>
+    <origin xyz="0 -0.215 0" rpy="0 0 0"/>
+  </joint>
+  <link name="hub_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.042" length="0.048"/></geometry>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="wheel_right_hub" type="fixed">
+    <parent link="wheel_right"/><child link="hub_right"/><origin xyz="0 0 0"/>
+  </joint>
+
+  <!-- ===== Roulette folle arriere ===== -->
+  <link name="caster_rear">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.032" length="0.022"/></geometry>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="base_to_caster" type="fixed">
+    <parent link="base_link"/><child link="caster_rear"/>
+    <origin xyz="-0.17 0 -0.043" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== 4 montants en bois ===== -->
+  <link name="post_fl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_fl" type="fixed"><parent link="base_link"/><child link="post_fl"/>
+    <origin xyz="0.13 0.12 0.125"/></joint>
+  <link name="post_fr"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_fr" type="fixed"><parent link="base_link"/><child link="post_fr"/>
+    <origin xyz="0.13 -0.12 0.125"/></joint>
+  <link name="post_rl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_rl" type="fixed"><parent link="base_link"/><child link="post_rl"/>
+    <origin xyz="-0.10 0.12 0.125"/></joint>
+  <link name="post_rr"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_rr" type="fixed"><parent link="base_link"/><child link="post_rr"/>
+    <origin xyz="-0.10 -0.12 0.125"/></joint>
+
+  <!-- ===== Plateau superieur en alu ===== -->
+  <link name="deck">
+    <visual>
+      <geometry><box size="0.34 0.32 0.005"/></geometry>
+      <material name="alu"/>
+    </visual>
+  </link>
+  <joint name="base_to_deck" type="fixed">
+    <parent link="base_link"/><child link="deck"/>
+    <origin xyz="0.02 0 0.262"/>
+  </joint>
+
+  <!-- ===== LIDAR N10 (corps ; le repere laser_link vient de la TF) ===== -->
+  <link name="lidar_body">
+    <visual>
+      <geometry><cylinder radius="0.038" length="0.048"/></geometry>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="deck_to_lidar" type="fixed">
+    <parent link="base_link"/><child link="lidar_body"/>
+    <origin xyz="0.10 0 0.288"/>
+  </joint>
+
+  <!-- ===== Batterie bleue sur la base ===== -->
+  <link name="battery">
+    <visual>
+      <geometry><box size="0.21 0.09 0.075"/></geometry>
+      <material name="bleu_batt"/>
+    </visual>
+  </link>
+  <joint name="base_to_battery" type="fixed">
+    <parent link="base_link"/><child link="battery"/>
+    <origin xyz="-0.02 0.05 0.027" rpy="0 0 0.15"/>
+  </joint>
+
+  <!-- ===== Electronique (driver + DevKitC) ===== -->
+  <link name="electronics">
+    <visual>
+      <geometry><box size="0.13 0.10 0.035"/></geometry>
+      <material name="vert_pcb"/>
+    </visual>
+  </link>
+  <joint name="base_to_electronics" type="fixed">
+    <parent link="base_link"/><child link="electronics"/>
+    <origin xyz="0.06 -0.09 0.007" rpy="0 0 -0.2"/>
+  </joint>
+
+  <!-- ===== Boitier Jetson sur le plateau ===== -->
+  <link name="jetson">
+    <visual>
+      <geometry><box size="0.11 0.09 0.045"/></geometry>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="deck_to_jetson" type="fixed">
+    <parent link="base_link"/><child link="jetson"/>
+    <origin xyz="-0.06 -0.06 0.287" rpy="0 0 0.1"/>
+  </joint>
+
+  <!-- ===== Marqueur AVANT (rouge) ===== -->
+  <link name="front_marker">
+    <visual>
+      <geometry><box size="0.05 0.02 0.012"/></geometry>
+      <material name="rouge"/>
+    </visual>
+  </link>
+  <joint name="base_to_front" type="fixed">
+    <parent link="base_link"/><child link="front_marker"/>
+    <origin xyz="0.205 0 -0.012"/>
+  </joint>
+
+</robot>

@@ -1,0 +1,17 @@
+[Unit]
+Description=mowbot lidar LSLidar N10 -> /scan
+# __USER__ / __HOME__ sont remplaces par install.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=HOME=__HOME__
+ExecStartPre=/bin/sleep 8
+ExecStart=/bin/bash __HOME__/mowbot/bin/run_lidar.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

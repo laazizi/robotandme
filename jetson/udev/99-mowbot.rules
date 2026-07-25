@@ -1,6 +1,0 @@
-# mowbot (Jetson) — les 2 CP2102 (DevKitC et lidar N10) ont un serial identique
-# -> distinction par PORT USB PHYSIQUE. NE PAS changer les prises !
-#   usb-0:2.2   = port DIRECT  -> ESP32 DevKitC (verifie par esptool chip_id)
-#   usb-0:2.1.3 = port du HUB  -> lidar LSLidar N10
-SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.2:1.0", SYMLINK+="mowbot_esp32", GROUP="dialout", MODE="0660"
-SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.1.3:1.0", SYMLINK+="mowbot_lidar", GROUP="dialout", MODE="0660"

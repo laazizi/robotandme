@@ -1,2 +1,0 @@
-# mowbot Razor IMU (FTDI) -> lien symbolique stable /dev/mowbot_imu
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", ATTRS{serial}=="FT1CBPYF", SYMLINK+="mowbot_imu", GROUP="dialout", MODE="0660"

@@ -1,0 +1,17 @@
+[Unit]
+Description=mowbot EKF (odom + gyro) -> /odometry/filtered
+# __USER__ / __HOME__ sont remplaces par install.sh
+After=network-online.target mowbot-agent.service mowbot-razor.service
+Wants=network-online.target mowbot-agent.service mowbot-razor.service
+
+[Service]
+Type=simple
+User=__USER__
+Environment=HOME=__HOME__
+ExecStartPre=/bin/sleep 10
+ExecStart=/bin/bash __HOME__/mowbot/bin/run_ekf.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
