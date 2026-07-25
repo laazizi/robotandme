@@ -4,7 +4,7 @@
     lidar_name: N10
     interface_selection: serial
     serial_port_: /dev/mowbot_lidar
-    scan_topic: /scan
+    scan_topic: /scan_raw
     angle_disable_min: 0.0
     angle_disable_max: 0.0
     min_range: 0.05
