@@ -45,6 +45,8 @@
 #define ENC_R_INVERT      1      // suit l'echange L<->R (ex-gauche, pins 33/32)
 
 // -- gains PID robot 12 V (regles sur le robot) --
+#define MAX_WHEEL_SPEED_MPS_ROBOT  1.0f
+#define FF_GAIN  0.0f                       // pas de feed-forward (PID valide tel quel)
 #define PID_KP  0.8f
 #define PID_KI  2.0f
 #define PID_KD  0.0f
@@ -64,10 +66,12 @@
 #define PIN_MOTOR_R_PWM   16
 #define PIN_MOTOR_R_DIR   17
 
-#define PIN_ENC_L_A       32     // Bleu   (pull-up interne OK)
-#define PIN_ENC_L_B       33     // Orange
-#define PIN_ENC_R_A       18     // Bleu
-#define PIN_ENC_R_B       19     // Orange
+// Encodeurs CROISES vs moteurs sur ce chassis (mesure : en virage, chaque PID
+// s'emballait car son capteur etait sur l'AUTRE roue) -> groupes echanges.
+#define PIN_ENC_L_A       18     // Bleu   (roue du moteur L : pins 25/26)
+#define PIN_ENC_L_B       19     // Orange
+#define PIN_ENC_R_A       32     // Bleu   (roue du moteur R : pins 16/17)
+#define PIN_ENC_R_B       33     // Orange
 
 #define PIN_IMU_SDA       21
 #define PIN_IMU_SCL       22
@@ -81,13 +85,19 @@
 
 #define MOTOR_L_INVERT    0
 #define MOTOR_R_INVERT    0
-#define ENC_L_INVERT      1      // mesure : +cmd -> gauche comptait NEGATIF (droite OK)
-#define ENC_R_INVERT      0
+#define ENC_L_INVERT      0      // suit l'echange des groupes (ex-R, pins 18/19)
+#define ENC_R_INVERT      1      // suit l'echange des groupes (ex-L, pins 32/33)
 
-// -- gains PID robot 24 V : ABAISSES car moteurs plus puissants que le 12 V
-//    (mêmes gains = correction trop violente -> oscillation / a-coups) --
-#define PID_KP  0.35f
-#define PID_KI  0.7f
+// -- dynamique robot 24 V : moteurs a fort couple TRES LENTS --
+// Vitesse max MESUREE a pleine puissance : 0.055 m/s (7.5 tr/min roue).
+// -> MAX_WHEEL_SPEED recale (le duty feed-forward = cible/MAX est alors juste)
+// -> FEED-FORWARD indispensable : a ces echelles (erreurs ~0.05 m/s) un PID
+//    seul demande des gains enormes ou met 10 s a monter. Le FF envoie
+//    d'emblee le bon duty, le PID ne fait qu'affiner (charge, pente).
+#define MAX_WHEEL_SPEED_MPS_ROBOT  0.06f   // legerement > max pour garder toute l'echelle
+#define FF_GAIN  1.0f                       // feed-forward actif
+#define PID_KP  3.0f                        // gains de CORRECTION (autour du FF)
+#define PID_KI  5.0f
 #define PID_KD  0.0f
 #endif
 
@@ -103,7 +113,7 @@
 #define IMU_GYRO_CALIB_SAMPLES 200    // ~1 s de calibration biais gyro au boot
 #define CMD_VEL_TIMEOUT_MS    500     // deadman : moteurs coupés sans cmd_vel
 #define PWM_FREQ_HZ           20000   // 20 kHz : inaudible, max supporté MDD10A rev2.0
-#define MAX_WHEEL_SPEED_MPS   1.0f    // saturation consigne vitesse roue
+#define MAX_WHEEL_SPEED_MPS   MAX_WHEEL_SPEED_MPS_ROBOT   // defini PAR ROBOT plus haut
 
 // NB : les gains PID et la geometrie sont definis PAR ROBOT plus haut
 // (blocs #if CONFIG_IDF_TARGET_ESP32P4 / #else).

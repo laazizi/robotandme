@@ -206,20 +206,23 @@ static void control_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
     float v_left = d_left / dt;
     float v_right = d_right / dt;
 
-    // PID vitesse par roue (encodeurs calibres et fiables depuis le passage
-    // au banc). Consigne nulle : moteur coupe + reset PID (pas de freinage
-    // actif -> pas d'oscillation a l'arret, l'integrale ne pousse plus).
+    // FEED-FORWARD + PID par roue : le FF envoie d'emblee le duty theorique
+    // (cible / vitesse max), le PID ne corrige que l'ecart (charge, pente).
+    // FF_GAIN=0 -> PID pur (robot 12 V, valide ainsi). Consigne nulle :
+    // moteur coupe + reset PID (pas de freinage actif -> pas d'oscillation).
     if (s_target_left == 0.0f) {
         pid_reset(&s_pid_left);
         motors_set(MOTOR_LEFT, 0.0f);
     } else {
-        motors_set(MOTOR_LEFT, pid_update(&s_pid_left, s_target_left, v_left, dt));
+        float ff = FF_GAIN * clampf(s_target_left / MAX_WHEEL_SPEED_MPS, -1.0f, 1.0f);
+        motors_set(MOTOR_LEFT, clampf(ff + pid_update(&s_pid_left, s_target_left, v_left, dt), -1.0f, 1.0f));
     }
     if (s_target_right == 0.0f) {
         pid_reset(&s_pid_right);
         motors_set(MOTOR_RIGHT, 0.0f);
     } else {
-        motors_set(MOTOR_RIGHT, pid_update(&s_pid_right, s_target_right, v_right, dt));
+        float ff = FF_GAIN * clampf(s_target_right / MAX_WHEEL_SPEED_MPS, -1.0f, 1.0f);
+        motors_set(MOTOR_RIGHT, clampf(ff + pid_update(&s_pid_right, s_target_right, v_right, dt), -1.0f, 1.0f));
     }
 
     // Le PID tourne à 50 Hz (fluide) mais on ne publie /odom qu'1 cycle sur
