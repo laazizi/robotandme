@@ -31,7 +31,11 @@ controller_server:
       stateful: True
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.048
+      # Alignee sur la vitesse PHYSIQUE max (0.055 m/s mesuree), pas en
+      # dessous : le joystick, lui, demande 0.5 m/s -> il sature a 100 % de
+      # puissance en permanence, d'ou l'impression qu'il va plus vite que la
+      # navigation qui, elle, se limitait a 0.048 (= 80 % de puissance).
+      desired_linear_vel: 0.055
       # Le point de poursuite doit tomber DEVANT le robot : l'avant du chassis
       # est a 0.24 m, un lookahead de 0.20 visait donc un point situe DANS le
       # robot -> braquages permanents, oscillations, blocages.
@@ -45,7 +49,9 @@ controller_server:
       use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 0.5
       use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_speed: 0.03
+      # plancher en courbe : ne pas retomber sous 0.045 (etait 0.03, soit
+      # presque la moitie de la vitesse de croisiere perdue a chaque virage)
+      regulated_linear_scaling_min_speed: 0.045
       use_cost_regulated_linear_velocity_scaling: false
       use_rotate_to_heading: false
       allow_reversing: true
@@ -194,8 +200,8 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "OPEN_LOOP"
-    max_velocity: [0.055, 0.0, 0.20]
-    min_velocity: [-0.055, 0.0, -0.20]
+    max_velocity: [0.06, 0.0, 0.22]
+    min_velocity: [-0.06, 0.0, -0.22]
     max_accel: [0.4, 0.0, 1.2]
     max_decel: [-0.6, 0.0, -1.5]
     odom_topic: "/odometry/filtered"
