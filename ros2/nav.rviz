@@ -99,7 +99,7 @@ Visualization Manager:
       Enabled: true
       Name: LidarScan
       Position Transformer: XYZ
-      Size (Pixels): 4
+      Size (Pixels): 3
       Style: Points
       Topic:
         Depth: 5
@@ -142,7 +142,7 @@ Visualization Manager:
       Covariance:
         Value: false
       Enabled: true
-      Keep: 300
+      Keep: 60
       Name: Trajectoire
       Position Tolerance: 0.02
       Shape:

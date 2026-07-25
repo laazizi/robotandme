@@ -9,5 +9,6 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID=0
 # Rendu logiciel : contourne le bug GLSL du display Map (indexed_8bit_image
 # ne se lie pas sur certains pilotes OpenGL -> carte invisible sinon).
-export LIBGL_ALWAYS_SOFTWARE=1
+# rendu materiel : si la carte disparait, remettre LIBGL_ALWAYS_SOFTWARE=1
+#export LIBGL_ALWAYS_SOFTWARE=1
 exec ros2 run rviz2 rviz2 -d nav.rviz
