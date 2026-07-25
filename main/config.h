@@ -79,8 +79,11 @@
 #define PIN_IMU_SCL       22
 
 // -- geometrie robot 24 V --
-#define WHEEL_RADIUS_M        0.0698f  // TODO affiner : ros2/calib_distance.sh
-#define TRACK_WIDTH_M         0.59f    // TODO mesurer l'entraxe reel des nouvelles roues
+#define WHEEL_RADIUS_M        0.0698f  // rayon effectif calibre (odom 1 m = 1 m reel)
+#define TRACK_WIDTH_M         0.48f    // entraxe MESURE (centre a centre des roues).
+                                       // Etait 0.59 (herite du chassis 12 V) : la
+                                       // cinematique inverse faisait alors sur-tourner
+                                       // le robot de ~23 % sur chaque consigne angulaire.
 #define TICKS_PER_WHEEL_REV   3200.0f  // MESURE (ros2/tick_count.py, 1 tour de roue) :
                                        // gauche 3292, droite 3091 -> ~3200
                                        // = 160 CPR x4 quadrature x reducteur 5:1

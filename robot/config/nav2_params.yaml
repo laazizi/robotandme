@@ -24,15 +24,20 @@ controller_server:
       movement_time_allowance: 30.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.08
-      yaw_goal_tolerance: 0.15
+      # robot de 58 cm de long : viser 8 cm etait irrealiste (le dernier
+      # centimetre prenait plus longtemps que tout le trajet, a 0.048 m/s).
+      xy_goal_tolerance: 0.12
+      yaw_goal_tolerance: 0.20
       stateful: True
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       desired_linear_vel: 0.048
-      lookahead_dist: 0.20
-      min_lookahead_dist: 0.15
-      max_lookahead_dist: 0.30
+      # Le point de poursuite doit tomber DEVANT le robot : l'avant du chassis
+      # est a 0.24 m, un lookahead de 0.20 visait donc un point situe DANS le
+      # robot -> braquages permanents, oscillations, blocages.
+      lookahead_dist: 0.35
+      min_lookahead_dist: 0.28
+      max_lookahead_dist: 0.50
       use_velocity_scaled_lookahead_dist: false
       transform_tolerance: 0.3
       min_approach_linear_velocity: 0.03
@@ -57,10 +62,17 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 2
-      height: 2
+      width: 3
+      height: 3
       resolution: 0.02
-      robot_radius: 0.22
+      # Contour REEL (base_link = milieu de l'essieu). Le robot n'est PAS un
+      # disque : entraxe roues 0.48 (0.53 hors tout avec les pneus) et un
+      # debord ARRIERE de 10 cm. Un robot_radius unique obligerait a prendre
+      # 0.34 partout, soit 12 cm de bourrelet inutile a l'avant et sur les
+      # cotes -> passages refuses sans raison. Indispensable maintenant que la
+      # marche arriere est autorisee : l'arriere doit etre protege pour de vrai.
+      footprint: "[[0.24, 0.10], [0.10, 0.27], [-0.20, 0.27], [-0.34, 0.15], [-0.34, -0.15], [-0.20, -0.27], [0.10, -0.27], [0.24, -0.10]]"
+      footprint_padding: 0.02
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -96,7 +108,9 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       resolution: 0.02
-      robot_radius: 0.22
+      # meme contour reel que le local_costmap (cf. commentaire plus haut)
+      footprint: "[[0.24, 0.10], [0.10, 0.27], [-0.20, 0.27], [-0.34, 0.15], [-0.34, -0.15], [-0.20, -0.27], [0.10, -0.27], [0.24, -0.10]]"
+      footprint_padding: 0.02
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:

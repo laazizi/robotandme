@@ -28,6 +28,19 @@
     </visual>
   </link>
 
+  <!-- Rallonge ARRIERE (+10 cm) : le robot n'est plus un disque, il deborde
+       derriere l'essieu. C'est ce debord que le footprint nav2 protege. -->
+  <link name="rear_ext">
+    <visual>
+      <geometry><box size="0.10 0.30 0.018"/></geometry>
+      <material name="bois"/>
+    </visual>
+  </link>
+  <joint name="base_to_rear_ext" type="fixed">
+    <parent link="base_link"/><child link="rear_ext"/>
+    <origin xyz="-0.27 0 -0.02"/>
+  </joint>
+
   <!-- ===== Roues motrices (pneus blancs) ===== -->
   <link name="wheel_left">
     <visual>
@@ -38,7 +51,7 @@
   </link>
   <joint name="base_to_wheel_left" type="fixed">
     <parent link="base_link"/><child link="wheel_left"/>
-    <origin xyz="0 0.215 0" rpy="0 0 0"/>
+    <origin xyz="0 0.24 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_left">
     <visual>
@@ -60,7 +73,7 @@
   </link>
   <joint name="base_to_wheel_right" type="fixed">
     <parent link="base_link"/><child link="wheel_right"/>
-    <origin xyz="0 -0.215 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.24 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_right">
     <visual>
