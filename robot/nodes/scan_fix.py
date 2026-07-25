@@ -26,6 +26,8 @@ SELF_SECTORS = [
     (233.0, 250.0, 0.45),   # montant arriere-droit (~33 cm)
     (261.0, 280.0, 0.60),   # antenne / support (~48 cm)
     (282.0, 311.0, 0.40),   # montant arriere-gauche (~28 cm)
+    (52.0,  64.0,  0.55),   # structure avant-gauche (~49 cm, detectee ensuite)
+    (250.0, 262.0, 0.65),   # structure arriere (~60 cm, detectee ensuite)
 ]
 
 
