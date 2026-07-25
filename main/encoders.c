@@ -25,7 +25,11 @@ static pcnt_unit_handle_t quadrature_unit_create(int gpio_a, int gpio_b, int inv
     pcnt_unit_handle_t unit;
     ESP_ERROR_CHECK(pcnt_new_unit(&unit_cfg, &unit));
 
-    pcnt_glitch_filter_config_t filter = { .max_glitch_ns = 1000 };
+    // Filtre anti-parasites 10 us (max materiel ~12.7 us) : le PWM 20 kHz des
+    // moteurs 24 V rayonne dans les cables encodeurs -> comptage +1/-1 aleatoire
+    // (somme ~0, odometrie gelee alors que le robot roule). Un vrai front
+    // encodeur dure >100 us meme a pleine vitesse -> 10 us ne coupe rien d'utile.
+    pcnt_glitch_filter_config_t filter = { .max_glitch_ns = 10000 };
     ESP_ERROR_CHECK(pcnt_unit_set_glitch_filter(unit, &filter));
 
     pcnt_chan_config_t cfg_a = { .edge_gpio_num = gpio_a, .level_gpio_num = gpio_b };

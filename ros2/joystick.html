@@ -32,6 +32,10 @@
 <div id="bar">
   <input id="ip" value="192.168.1.26" placeholder="IP du Jetson">
   <button id="btn" onclick="connect()">Connecter</button>
+  <label style="font-size:.9rem">Vmax
+    <input id="vmax" type="number" value="0.5" min="0.2" max="1.0" step="0.1"
+           style="width:70px" title="vitesse max (m/s) en butee du pad">
+  </label>
 </div>
 <div id="status">déconnecté</div>
 <div id="pad"><div id="stick"></div></div>
@@ -42,8 +46,10 @@ démarre à sa vitesse mini utile.</div>
 
 <script>
 // ---- parametres adaptes au mowbot (friction statique des moteurs) ----
-const V_MIN = 0.13, V_MAX = 0.35;   // m/s   : plage lineaire utile
-const W_MIN = 0.40, W_MAX = 0.90;   // rad/s : plage angulaire utile
+const V_MIN = 0.13;                 // m/s   : plancher (friction statique)
+const W_MIN = 0.40;                 // rad/s : plancher rotation
+function vmax() { return parseFloat(document.getElementById('vmax').value) || 0.5; }
+function wmax() { return Math.min(1.5, vmax() * 1.8); }   // rotation proportionnelle
 const DEAD  = 0.15;                 // deflexion sous laquelle on envoie 0
 const RATE  = 10;                   // Hz d'envoi (deadman firmware = 500 ms)
 
@@ -72,8 +78,17 @@ function connect() {
   ws.onerror = () => { st.textContent = '❌ erreur de connexion (IP ? rosbridge ?)'; };
 }
 
+// Ne publie QUE pendant l'utilisation du pad (+ ~0,6 s de zeros au
+// relachement pour stopper net). Sinon SILENCE : ainsi la page peut rester
+// ouverte sans se battre avec un autre pilote (ros2 pub, nav2...) sur
+// /cmd_vel — c'etait la cause d'a-coups (gaz/stop en alternance).
+let zeroBurst = 0;
 function send() {
   if (!ws || ws.readyState !== 1) return;
+  const active = (vx !== 0 || wz !== 0);
+  if (active) { zeroBurst = 6; }               // 6 cycles de zeros apres usage
+  else if (zeroBurst > 0) { zeroBurst--; }
+  else { return; }                             // pad au repos -> on se tait
   ws.send(JSON.stringify({op:'publish', topic:'/cmd_vel',
     msg:{linear:{x:vx, y:0, z:0}, angular:{x:0, y:0, z:wz}}}));
 }
@@ -100,8 +115,8 @@ function setStick(nx, ny) {   // nx,ny dans -1..1 (y vers le haut)
   if (r > 1) { nx /= r; ny /= r; }
   stick.style.left = (37 + nx * 37) + '%';
   stick.style.top  = (37 - ny * 37) + '%';
-  vx = scale(ny, V_MIN, V_MAX);
-  wz = scale(-nx, W_MIN, W_MAX);   // pousser a gauche = tourner a gauche (+z)
+  vx = scale(ny, V_MIN, vmax());
+  wz = scale(-nx, W_MIN, wmax());  // pousser a gauche = tourner a gauche (+z)
   vals.textContent = 'v = ' + vx.toFixed(2) + ' m/s  w = ' + wz.toFixed(2) + ' rad/s';
 }
 
