@@ -1,0 +1,16 @@
+[Unit]
+Description=mowbot lidar LSLidar N10 -> /scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nvidia
+Environment=HOME=/home/nvidia
+ExecStartPre=/bin/sleep 8
+ExecStart=/bin/bash /home/nvidia/run_lidar.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
