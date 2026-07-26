@@ -65,23 +65,35 @@ for dev in /dev/ttyUSB* /dev/ttyACM*; do
     fi
   fi
 
-  # 3) sinon : port qui debite en continu -> lidar
-  stty -F "$dev" 230400 raw -echo 2>/dev/null
-  N=$(timeout 2 cat "$dev" 2>/dev/null | wc -c)
-  if [ "$N" -gt 2000 ]; then
-    echo "   -> LIDAR ($N octets/2 s)"
-    LIDAR_PATH="$IDPATH"
-  else
-    echo "   -> inconnu (silencieux, $N octets)"
-  fi
+  # 3) sinon : sonde le flux pour identifier le MODELE de lidar.
+  #    Indispensable ici : le LD14 et l'ESP32 partagent la puce CP2102 avec le
+  #    meme serial, seul le contenu du flux les distingue.
+  MODEL=$(python3 "$(dirname "$(readlink -f "$0")")/lidar_probe.py" "$dev" 2>/dev/null)
+  case "$MODEL" in
+    ld14|ld06|n10)
+      echo "   -> LIDAR modele $MODEL"
+      LIDAR_PATH="$IDPATH"; LIDAR_MODEL="$MODEL"
+      ;;
+    *)
+      echo "   -> inconnu (aucune signature de lidar)"
+      ;;
+  esac
 done
 
 echo
 echo "=============================================================="
 printf " ESP32 : %s\n" "${ESP32_PATH:-NON TROUVE}"
-printf " LIDAR : %s\n" "${LIDAR_PATH:-NON TROUVE}"
+printf " LIDAR : %s%s\n" "${LIDAR_PATH:-NON TROUVE}" \
+       "$([ -n "$LIDAR_MODEL" ] && echo "   (modele $LIDAR_MODEL)")"
 printf " IMU   : %s\n" "${IMU_PATH:-NON TROUVE}"
 echo "=============================================================="
+
+# Memorise le modele detecte : run_lidar.sh y lira quel driver lancer, sans
+# avoir a re-sonder le port a chaque demarrage.
+if [ -n "$LIDAR_MODEL" ] && [ "$DRY" = "0" ]; then
+  echo "MOWBOT_LIDAR=$LIDAR_MODEL" > "$MOWBOT_HOME/lidar_model.env" 2>/dev/null && \
+    echo " modele memorise dans $MOWBOT_HOME/lidar_model.env"
+fi
 
 # --- Generation de la regle -------------------------------------------------
 TMP=$(mktemp)

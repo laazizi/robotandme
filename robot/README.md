@@ -24,7 +24,23 @@ Options : `--no-apt`, `--no-udev`, `--no-enable`.
 À faire en plus sur un SBC neuf (non automatisé, dépend de l'architecture) :
 - **agent micro-ROS** : compiler `MicroXRCEAgent`, ou laisser `run_agent.sh`
   basculer sur l'image Docker `microros/micro-ros-agent`
-- **driver lidar** : compiler la branche `N10_V1.0` du dépôt LSLidar dans `~/lidar_ws`
+- **driver lidar** : seulement pour le **N10** — compiler la branche `N10_V1.0`
+  du dépôt LSLidar dans `~/lidar_ws`. Le **LD14 ne demande rien** (nœud Python).
+
+## Deux lidars supportés
+
+| | **N10** (LSLidar) | **LD14** (LDRobot) |
+|---|---|---|
+| Mesuré | 10 Hz, 450 pts/tour, 12 m | 6 Hz, 391 pts/tour, 8 m |
+| Driver | C++ à compiler (`~/lidar_ws`) | `nodes/ld14_node.py`, rien à compiler |
+| Vitesse série | 230400 | 115200 |
+
+Le modèle est **reconnu automatiquement** par `mowbot detect`, qui sonde le
+flux série (`bin/lidar_probe.py`) et l'enregistre dans `lidar_model.env`.
+Forcer un modèle : `export MOWBOT_LIDAR=ld14` (ou `n10`).
+
+Les LD06/LD19 utilisent le même protocole que le LD14 à 230400 bauds : ils
+sont détectés et pilotés par le même nœud.
 
 ## La commande `mowbot`
 
@@ -63,15 +79,20 @@ périphériques (`$DEV_ESP32`, `$DEV_LIDAR`, `$DEV_IMU`).
 
 ## ⚠️ USB et udev — le point sensible
 
-L'**ESP32 (DevKitC)** et le **lidar N10** utilisent la même puce **CP2102 avec le
-même numéro de série** (`0001`) : impossible de les distinguer par vendor/serial.
-Ils sont donc identifiés par **port USB physique** (`ID_PATH`), qui **diffère
-d'une machine à l'autre**.
+L'**ESP32 (DevKitC)** et les **lidars N10 / LD14** utilisent la même puce
+**CP2102 avec le même numéro de série** (`0001`) : impossible de les distinguer
+par vendor/serial. Ils sont donc identifiés par **port USB physique**
+(`ID_PATH`), qui **diffère d'une machine à l'autre**.
 
 `detect_devices.sh` les reconnaît par un **test réel** :
 - ESP32 → répond au protocole bootloader (`esptool chip_id`)
 - IMU Razor → puce FTDI qui émet des trames `#YPR=`
-- lidar → le port restant qui débite en continu
+- lidar → signature de son flux (`lidar_probe.py`), qui donne aussi le modèle
+
+⚠️ Piège vérifié sur la Raspberry : l'agent micro-ROS, ne trouvant pas
+`/dev/mowbot_esp32`, se rabattait sur le premier CP2102 venu — **le lidar**. Il
+ouvrait son port et `/scan` devenait muet. `run_agent.sh` exclut désormais le
+port du lidar et **confirme** l'ESP32 par son bootloader avant de s'y attacher.
 
 Puis il écrit `/etc/udev/rules.d/99-mowbot.rules` adapté à la machine.
 

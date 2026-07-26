@@ -1,0 +1,17 @@
+ld14:
+  ros__parameters:
+    # Pilote LDRobot LD14 (nodes/ld14_node.py).
+    # Valeurs confirmees en lisant le materiel (nodes/bench_lidar.py) :
+    #   6.00 Hz, 391 points par tour, 2349 points/s, 98.1 % de mesures valides.
+    port: /dev/mowbot_lidar     # lien udev : voir bin/detect_devices.sh
+    baudrate: 115200            # LD14. Les LD06 / LD19 sont a 230400.
+    frame_id: laser_link
+    topic: /scan_raw            # scan_fix.py normalise ensuite vers /scan
+    range_min: 0.05
+    range_max: 8.0              # portee annoncee du LD14 (le N10 va a 12 m)
+    # Le LD14 fait croitre son angle dans le sens horaire, ROS attend
+    # l'inverse : sans cette inversion la carte serait un miroir.
+    invert_angle: true
+    # Rejette les trames dont le CRC8 est faux plutot que d'injecter des
+    # mesures corrompues dans la carte.
+    check_crc: true

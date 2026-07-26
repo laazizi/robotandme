@@ -110,8 +110,14 @@ class ScanFix(Node):
         src = np.linspace(m.angle_min, m.angle_max, n_in)
         dst = np.linspace(m.angle_min, m.angle_max, N)
         r = np.array(m.ranges, dtype=float)
+        # np.interp n'accepte pas l'infini : on le remplace le temps du calcul
+        # par une valeur hors portee, puis on remet l'infini apres coup. Sans
+        # cette remise, /scan annoncait des mesures a range_max+1 (9.00 m avec
+        # le LD14) la ou le lidar n'avait RIEN vu -- valeurs ignorees par nav2,
+        # mais trompeuses a la lecture et dans les outils de diagnostic.
         r[~np.isfinite(r)] = m.range_max + 1.0
         out_r = np.interp(dst, src, r)
+        out_r[out_r > m.range_max] = float('inf')
 
         # masquage : echo proche dans un secteur "robot" -> considere inexistant
         hide = (self.mask > 0) & (out_r < self.mask)

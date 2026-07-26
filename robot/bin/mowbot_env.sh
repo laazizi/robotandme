@@ -15,7 +15,18 @@ export MOWBOT_NODES="$MOWBOT_HOME/nodes"
 export MOWBOT_CONFIG="$MOWBOT_HOME/config"
 export MOWBOT_MAPS="$MOWBOT_HOME/maps"
 export MOWBOT_LOGS="/tmp/mowbot"
-mkdir -p "$MOWBOT_MAPS" "$MOWBOT_LOGS" 2>/dev/null
+mkdir -p "$MOWBOT_MAPS" 2>/dev/null
+# Dossier de logs partage : certains scripts tournent en root (detect_devices),
+# les services en utilisateur. Sans droits ouverts, celui qui cree le dossier
+# le premier verrouille les autres ("Permission denied" au demarrage du lidar).
+if mkdir -p "$MOWBOT_LOGS" 2>/dev/null; then
+  chmod 1777 "$MOWBOT_LOGS" 2>/dev/null || true
+fi
+# repli si le dossier reste inaccessible (appartient a un autre utilisateur)
+if [ ! -w "$MOWBOT_LOGS" ]; then
+  export MOWBOT_LOGS="/tmp/mowbot-$(id -un)"
+  mkdir -p "$MOWBOT_LOGS" 2>/dev/null
+fi
 
 # --- Distro ROS : detectee, jamais codee en dur -----------------------------
 if [ -z "$MOWBOT_ROS_DISTRO" ]; then
