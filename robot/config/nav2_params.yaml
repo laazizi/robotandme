@@ -29,36 +29,118 @@ controller_server:
       xy_goal_tolerance: 0.12
       yaw_goal_tolerance: 0.20
       stateful: True
+    # ==========================================================
+    #  CONTROLEUR : DWB  (choisi pour les obstacles dynamiques)
+    #
+    #  Remplace Regulated Pure Pursuit, qui est un SUIVEUR de chemin : il
+    #  n'a qu'un seul comportement, suivre la ligne planifiee. Des qu'elle
+    #  etait bloquee il s'arretait ("detected collision ahead" en boucle)
+    #  sans jamais envisager de passer a cote, meme avec de la place.
+    #
+    #  DWB echantillonne a chaque cycle un eventail de couples (v, w)
+    #  realisables, simule chaque trajectoire et garde la mieux notee par
+    #  les "critics". Il contourne donc de lui-meme et reagit a ce qui
+    #  bouge : c'est le comportement voulu en environnement dynamique.
+    #
+    #  Retour arriere possible : le bloc RPP est conserve en commentaire
+    #  juste en dessous.
+    # ==========================================================
     FollowPath:
-      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      # Alignee sur la vitesse PHYSIQUE max (0.055 m/s mesuree), pas en
-      # dessous : le joystick, lui, demande 0.5 m/s -> il sature a 100 % de
-      # puissance en permanence, d'ou l'impression qu'il va plus vite que la
-      # navigation qui, elle, se limitait a 0.048 (= 80 % de puissance).
-      desired_linear_vel: 0.055
-      # Le point de poursuite doit tomber DEVANT le robot : l'avant du chassis
-      # est a 0.24 m, un lookahead de 0.20 visait donc un point situe DANS le
-      # robot -> braquages permanents, oscillations, blocages.
-      lookahead_dist: 0.35
-      min_lookahead_dist: 0.28
-      max_lookahead_dist: 0.50
-      use_velocity_scaled_lookahead_dist: false
+      plugin: "dwb_core::DWBLocalPlanner"
+      debug_trajectory_details: True
+
+      # -- enveloppe de vitesse : valeurs MESUREES sur le robot --
+      # min_vel_x NEGATIF = marche arriere autorisee. DWB decide lui-meme de
+      # reculer si c'est la meilleure trajectoire, sans attendre un
+      # comportement de recuperation.
+      min_vel_x: -0.055
+      max_vel_x: 0.055
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      max_vel_theta: 0.22
+      min_speed_xy: 0.0
+      max_speed_xy: 0.055
+      min_speed_theta: 0.0
+      acc_lim_x: 0.4
+      acc_lim_y: 0.0
+      acc_lim_theta: 1.5
+      decel_lim_x: -0.6
+      decel_lim_y: 0.0
+      decel_lim_theta: -1.5
+
+      # -- echantillonnage --
+      # 40 echantillons en rotation : c'est la rotation qui permet de
+      # contourner. Le robot est tres lent, le CPU suit largement.
+      vx_samples: 20
+      vy_samples: 1
+      vtheta_samples: 40
+      # 4 s d'anticipation = 22 cm seulement a 0.055 m/s. Plus court, le
+      # robot ne verrait pas assez loin pour amorcer un evitement.
+      sim_time: 4.0
+      linear_granularity: 0.02
+      angular_granularity: 0.025
       transform_tolerance: 0.3
-      min_approach_linear_velocity: 0.03
-      approach_velocity_scaling_dist: 0.12
-      use_collision_detection: true
-      max_allowed_time_to_collision_up_to_carrot: 0.5
-      use_regulated_linear_velocity_scaling: true
-      # plancher en courbe : ne pas retomber sous 0.045 (etait 0.03, soit
-      # presque la moitie de la vitesse de croisiere perdue a chaque virage)
-      regulated_linear_scaling_min_speed: 0.045
-      use_cost_regulated_linear_velocity_scaling: false
-      use_rotate_to_heading: false
-      allow_reversing: true
-      rotate_to_heading_min_angle: 0.5
-      rotate_to_heading_angular_vel: 0.18
-      max_angular_accel: 1.5
-      max_robot_pose_search_dist: 5.0
+      trans_stopped_velocity: 0.01
+      short_circuit_trajectory_evaluation: True
+      stateful: True
+
+      # -- notation des trajectoires --
+      # ObstacleFootprint plutot que BaseObstacle : BaseObstacle ne regarde
+      # que le cout sous le CENTRE du robot, ce qui est faux pour un chassis
+      # non circulaire. ObstacleFootprint teste le contour complet.
+      critics: ["RotateToGoal", "Oscillation", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      ObstacleFootprint.scale: 0.05
+      ObstacleFootprint.sum_scores: False
+      # PathAlign/PathDist tirent vers le chemin global, GoalAlign/GoalDist
+      # vers le but. Suivre le chemin domine, mais DWB garde la liberte de
+      # s'en ecarter pour eviter un obstacle.
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.15
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.15
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+      RotateToGoal.scale: 32.0
+      RotateToGoal.slowing_factor: 5.0
+      RotateToGoal.lookahead_time: -1.0
+      # anti-blocage : interdit d'alterner indefiniment gauche/droite au
+      # meme endroit.
+      Oscillation.scale: 10.0
+      Oscillation.oscillation_reset_dist: 0.10
+      Oscillation.oscillation_reset_angle: 0.30
+      Oscillation.x_only_threshold: 0.02
+
+    # --- ANCIEN controleur Regulated Pure Pursuit (conserve pour retour arriere) ---
+    # FollowPath:
+    #   plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+    #   # Alignee sur la vitesse PHYSIQUE max (0.055 m/s mesuree), pas en
+    #   # dessous : le joystick, lui, demande 0.5 m/s -> il sature a 100 % de
+    #   # puissance en permanence, d'ou l'impression qu'il va plus vite que la
+    #   # navigation qui, elle, se limitait a 0.048 (= 80 % de puissance).
+    #   desired_linear_vel: 0.055
+    #   # Le point de poursuite doit tomber DEVANT le robot : l'avant du chassis
+    #   # est a 0.24 m, un lookahead de 0.20 visait donc un point situe DANS le
+    #   # robot -> braquages permanents, oscillations, blocages.
+    #   lookahead_dist: 0.35
+    #   min_lookahead_dist: 0.28
+    #   max_lookahead_dist: 0.50
+    #   use_velocity_scaled_lookahead_dist: false
+    #   transform_tolerance: 0.3
+    #   min_approach_linear_velocity: 0.03
+    #   approach_velocity_scaling_dist: 0.12
+    #   use_collision_detection: true
+    #   max_allowed_time_to_collision_up_to_carrot: 0.5
+    #   use_regulated_linear_velocity_scaling: true
+    #   # plancher en courbe : ne pas retomber sous 0.045 (etait 0.03, soit
+    #   # presque la moitie de la vitesse de croisiere perdue a chaque virage)
+    #   regulated_linear_scaling_min_speed: 0.045
+    #   use_cost_regulated_linear_velocity_scaling: false
+    #   use_rotate_to_heading: false
+    #   allow_reversing: true
+    #   rotate_to_heading_min_angle: 0.5
+    #   rotate_to_heading_angular_vel: 0.18
+    #   max_angular_accel: 1.5
+    #   max_robot_pose_search_dist: 5.0
 
 local_costmap:
   local_costmap:
