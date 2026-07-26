@@ -113,8 +113,26 @@
 #define PID_KD  0.0f
 #endif
 
-// IMU ICM-42688-P en I2C (adresse 0x68 si AD0 à GND, 0x69 sinon)
+// ============================================================
+// IMU — deux modules supportes, reconnus automatiquement (cf. imu.c)
+// ============================================================
+// ICM-42688-P : 0x68 si AD0 à GND, 0x69 sinon
 #define IMU_I2C_ADDR      0x68
+
+// GY-801 (module 10 DoF) : puces separees sur le meme bus.
+//   L3G4200D  gyro  : 0x69 (strap SDO à VCC) ou 0x68 selon le lot
+//   ADXL345   accel : 0x53 (strap ALT à GND) ou 0x1D
+// Le HMC5883L (magnetometre) et le BMP085 (barometre) du module ne sont PAS
+// lus : le magnetometre est inutilisable a proximite des moteurs, et
+// l'altitude ne sert a rien pour une tondeuse.
+//
+// >>> ALIMENTER LE MODULE EN 3.3 V <<<
+// Ses resistances de tirage I2C sont reliees a son VCC. En 5 V elles
+// tireraient SDA/SCL a 5 V, or le P4 n'est PAS tolerant 5 V : les broches
+// seraient detruites.
+#define GY801_GYRO_ADDR       0x69
+#define GY801_GYRO_ADDR_ALT   0x68
+#define GY801_ACCEL_ADDR      0x53
 
 // ============================================================
 // Contrôle

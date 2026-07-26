@@ -47,7 +47,11 @@ mowbot_log "slam_toolbox : $(ros2 lifecycle get /slam_toolbox 2>/dev/null | head
 mowbot_log "attente du repere map (le SLAM doit publier map->odom)"
 MAP_OK=0
 for i in $(seq 1 40); do
-  if ros2 run tf2_ros tf2_echo map odom --once >/dev/null 2>&1; then
+  # tf2_echo tourne en boucle et ne rend pas la main : on le borne et on
+  # cherche sa sortie. `--once` ne fait PAS ce qu'on croit ici (il rendait
+  # toujours un code non nul), d'ou un faux negatif qui declenchait l'alerte
+  # alors que map->odom etait bien la.
+  if timeout 4 ros2 run tf2_ros tf2_echo map odom 2>/dev/null | grep -q "Translation"; then
     MAP_OK=1; mowbot_log "map->odom disponible apres ${i}x2 s"; break
   fi
   # relance l'activation si le SLAM est retombe (redemarrage du service)

@@ -117,9 +117,25 @@ static void imu_msg_init(void)
 
     // Pas d'estimation d'orientation embarquée : convention ROS = -1
     s_imu_msg.orientation_covariance[0] = -1.0;
+
+    // Covariances ANNONCEES SELON LE CAPTEUR REELLEMENT DETECTE : c'est avec
+    // elles que l'EKF pondere la mesure. Les sous-estimer ferait trop confiance
+    // a un gyro bruite (cap qui derive), les surestimer reviendrait a ignorer
+    // le gyro et a retomber sur l'odometrie des roues, sensible au patinage.
+    // Le L3G4200D du GY-801 est nettement plus bruite que l'ICM-42688 :
+    // ~0.03 deg/s/racine(Hz) contre ~0.0028, soit un ecart-type ~10x plus eleve
+    // donc une variance ~100x superieure.
+    float gyro_var, accel_var;
+    if (imu_model() == IMU_MODEL_GY801) {
+        gyro_var  = 2.5e-3;
+        accel_var = 2.5e-2;    // ADXL345 : ~4 mg/racine(Hz)
+    } else {
+        gyro_var  = 2.5e-5;    // ICM-42688 en low-noise
+        accel_var = 2.5e-3;
+    }
     for (int i = 0; i < 3; i++) {
-        s_imu_msg.angular_velocity_covariance[i * 4] = 2.5e-5;    // gyro ICM-42688 LN
-        s_imu_msg.linear_acceleration_covariance[i * 4] = 2.5e-3;
+        s_imu_msg.angular_velocity_covariance[i * 4] = gyro_var;
+        s_imu_msg.linear_acceleration_covariance[i * 4] = accel_var;
     }
 }
 
