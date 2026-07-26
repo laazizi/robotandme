@@ -105,11 +105,31 @@ if [ "$NO_APT" = "0" ]; then
   # n'est pas cree. Depuis Ubuntu 24.04 (PEP 668) `pip install --user` ECHOUE
   # sur un environnement gere par le systeme : on passe donc par apt d'abord,
   # et on force pip en dernier recours.
-  if ! python3 -c "import esptool" 2>/dev/null && ! command -v esptool.py >/dev/null 2>&1; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 esptool 2>/dev/null \
-      || pip3 install --user esptool -q 2>/dev/null \
-      || pip3 install --user --break-system-packages esptool -q 2>/dev/null \
-      || echo "   ATTENTION : esptool non installe -> l'ESP32 ne sera pas identifie"
+  # VERSION MINIMALE 4.12 : la 4.7 livree par apt lit MAL la revision de
+  # l'ESP32-P4. Elle annonce "v0.0" pour une puce v1.3, et le flash est alors
+  # refuse ("requires chip revision in range [v1.0 - v1.99]"). Le piege est
+  # qu'on est tente de forcer avec --force, ce qui flasherait un binaire
+  # inadapte a la puce.
+  ESPTOOL_OK=0
+  python3 - <<'PYV' 2>/dev/null && ESPTOOL_OK=1
+import sys
+try:
+    import esptool
+    v = tuple(int(x) for x in esptool.__version__.split('.')[:2])
+    sys.exit(0 if v >= (4, 12) else 1)
+except Exception:
+    sys.exit(1)
+PYV
+  if [ "$ESPTOOL_OK" = "0" ]; then
+    echo "   esptool absent ou trop ancien (< 4.12) : installation"
+    python3 -m pip --version >/dev/null 2>&1 || \
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 python3-pip >/dev/null 2>&1
+    python3 -m pip install --user -q -U "esptool>=4.12" 2>/dev/null \
+      || python3 -m pip install --user --break-system-packages -q -U "esptool>=4.12" 2>/dev/null \
+      || echo "   ATTENTION : esptool indisponible -> l'ESP32 ne sera ni identifie ni flashable"
+    # pip --user installe dans ~/.local/bin, absent du PATH par defaut
+    grep -q '.local/bin' "$HOME/.bashrc" 2>/dev/null || \
+      echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
   fi
 fi
 
