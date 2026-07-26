@@ -317,3 +317,77 @@ velocity_smoother:
     odom_duration: 0.2
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
+
+# ============================================================
+#  collision_monitor — OBLIGATOIRE a partir de Jazzy
+#
+#  Ce noeud n'existait pas dans le bringup Humble. navigation_launch.py le
+#  demarre desormais systematiquement, et s'il ne trouve pas sa configuration
+#  il echoue ("parameter 'observation_sources' is not initialized"). Le
+#  lifecycle_manager abandonne alors TOUTE la pile : controller_server et
+#  planner_server restent "inactive", les buts sont acceptes mais rien ne
+#  bouge, et aucun noeud ne s'abonne a /scan.
+#
+#  Role : dernier rempart materiel-logiciel. Il surveille /scan et bride ou
+#  coupe /cmd_vel si une collision devient imminente, independamment du
+#  controleur. Utile pour une tondeuse.
+# ============================================================
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    transform_tolerance: 0.3
+    source_timeout: 1.0
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+    # Ralentit a l'approche plutot que de bloquer net : le robot est deja tres
+    # lent (0.055 m/s), un arret franc le figerait pour un simple reflet.
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.5
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: False
+      enabled: True
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+      min_height: 0.10
+      max_height: 2.0
+      enabled: True
+
+# ============================================================
+#  docking_server — OBLIGATOIRE a partir de Jazzy
+#
+#  Autre noeud absent du bringup Humble : il gere l'accostage sur une station
+#  de recharge. navigation_launch.py le demarre toujours, et sans plugin
+#  declare il refuse de se configurer ("Charging dock plugins not given!"),
+#  ce qui fait AVORTER TOUTE la pile nav2 par le lifecycle_manager.
+#
+#  Le robot n'a pas de station de recharge : on declare le plugin standard
+#  pour satisfaire le noeud, sans declarer aucune station. Le jour ou une
+#  base de recharge existera, il suffira de lister les stations dans `docks`.
+# ============================================================
+docking_server:
+  ros__parameters:
+    controller_frequency: 10.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.10
+    max_retries: 3
+    base_frame: "base_link"
+    fixed_frame: "odom"
+    dock_plugins: ["simple_charging_dock"]
+    simple_charging_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      use_external_detection_pose: false
+      use_battery_status: false
+      use_stall_detection: false

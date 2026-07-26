@@ -61,10 +61,20 @@ cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
 # d'environnement, et un chemin en dur casse des qu'on change de SBC.
 # La comparaison porte sur la version DEJA substituee, sinon chaque
 # installation croit voir une difference et empile des .local.* inutiles.
+# Nom des plugins nav2 : Humble accepte "paquet/Classe", Jazzy exige
+# "paquet::Classe". Avec la mauvaise syntaxe le planner_server refuse de
+# demarrer ("does not exist") et le lifecycle_manager abandonne TOUT nav2 :
+# les buts sont alors acceptes mais rien ne bouge. On adapte a la distro.
+PLUGIN_SED=""
+if [ "$ROS_D" != "humble" ]; then
+  PLUGIN_SED="-e s|nav2_navfn_planner/|nav2_navfn_planner::|g
+              -e s|nav2_behaviors/|nav2_behaviors::|g"
+fi
+
 for f in "$SRC"/config/*; do
   b="$(basename "$f")"
   case "$b" in *.local.*) continue;; esac
-  sed -e "s|__HOME__|$HOME|g" -e "s|__USER__|$USER_NAME|g" "$f" > "/tmp/mowbot_cfg_$b"
+  sed -e "s|__HOME__|$HOME|g" -e "s|__USER__|$USER_NAME|g" $PLUGIN_SED "$f" > "/tmp/mowbot_cfg_$b"
   if [ -f "$DEST/config/$b" ] && ! cmp -s "/tmp/mowbot_cfg_$b" "$DEST/config/$b"; then
     cp "$DEST/config/$b" "$DEST/config/$b.local.$(date +%Y%m%d_%H%M%S)"
     echo "   (ancien $b sauvegarde en .local.*)"
