@@ -59,6 +59,20 @@ export STATIC_TF_BIN="/opt/ros/$MOWBOT_ROS_DISTRO/lib/tf2_ros/static_transform_p
 # --- Helpers ----------------------------------------------------------------
 mowbot_log() { echo "[$(date +%H:%M:%S)] $*"; }
 
+# esptool : selon l'installation c'est un module python, un script esptool.py
+# ou une commande esptool (paquet apt). On expose la COMMANDE et non une
+# fonction : `timeout 30 <fonction>` echoue ("No such file or directory"),
+# timeout n'accepte qu'un executable.
+mowbot_esptool_cmd() {
+  if python3 -c "import esptool" 2>/dev/null; then echo "python3 -m esptool"
+  elif command -v esptool.py >/dev/null 2>&1; then echo "esptool.py"
+  elif command -v esptool >/dev/null 2>&1; then echo "esptool"
+  fi
+}
+ESPTOOL_CMD="$(mowbot_esptool_cmd)"
+export ESPTOOL_CMD
+mowbot_has_esptool() { [ -n "$ESPTOOL_CMD" ]; }
+
 # Attend qu'un peripherique apparaisse (utile au boot). $1=chemin $2=secondes
 mowbot_wait_dev() {
   local dev="$1" max="${2:-20}" i=0

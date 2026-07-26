@@ -34,8 +34,13 @@ find_port() {
       mowbot_log "$d est un LIDAR, ignore pour l'agent" >&2
       continue
     fi
-    if python3 -c "import esptool" 2>/dev/null; then
-      if ! timeout 20 python3 -m esptool --port "$d" chip_id 2>&1 | grep -q "Chip is"; then
+    # firmware micro-ROS deja actif ? sa signature suffit, sans reset
+    stty -F "$d" 115200 raw -echo 2>/dev/null
+    if timeout 3 cat "$d" 2>/dev/null | head -c 600 | grep -qa "XRCE"; then
+      echo "$d"; return
+    fi
+    if mowbot_has_esptool; then
+      if ! timeout 20 $ESPTOOL_CMD --port "$d" chip_id 2>&1 | grep -q "Chip is"; then
         mowbot_log "$d ne repond pas comme un ESP32, ignore" >&2
         continue
       fi
@@ -52,8 +57,8 @@ while true; do
   PORT="$(find_port)"
   if [ -z "$PORT" ]; then mowbot_log "ESP32 introuvable, nouvel essai dans 3 s"; sleep 3; continue; fi
   stty -F "$PORT" -hupcl 2>/dev/null
-  if python3 -c "import esptool" 2>/dev/null; then
-    timeout 30 python3 -m esptool --port "$PORT" --before default_reset --after hard_reset chip_id >/dev/null 2>&1
+  if mowbot_has_esptool; then
+    timeout 30 $ESPTOOL_CMD --port "$PORT" --before default_reset --after hard_reset chip_id >/dev/null 2>&1
     sleep 2
   fi
   mowbot_log "ESP32 sur $PORT"

@@ -90,8 +90,17 @@ if [ "$NO_APT" = "0" ]; then
   else
     echo "   tout est deja installe"
   fi
-  # esptool : necessaire au hard reset de l'ESP32 et a la detection USB
-  python3 -c "import esptool" 2>/dev/null || pip3 install --user esptool -q || true
+  # esptool : necessaire au hard reset de l'ESP32 et a son identification par
+  # detect_devices.sh. Sans lui, l'ESP32 n'est jamais confirme et son lien udev
+  # n'est pas cree. Depuis Ubuntu 24.04 (PEP 668) `pip install --user` ECHOUE
+  # sur un environnement gere par le systeme : on passe donc par apt d'abord,
+  # et on force pip en dernier recours.
+  if ! python3 -c "import esptool" 2>/dev/null && ! command -v esptool.py >/dev/null 2>&1; then
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=600 esptool 2>/dev/null \
+      || pip3 install --user esptool -q 2>/dev/null \
+      || pip3 install --user --break-system-packages esptool -q 2>/dev/null \
+      || echo "   ATTENTION : esptool non installe -> l'ESP32 ne sera pas identifie"
+  fi
 fi
 
 # --- 4. services systemd ----------------------------------------------------
