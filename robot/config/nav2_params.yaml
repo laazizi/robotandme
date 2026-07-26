@@ -150,6 +150,12 @@ global_costmap:
         # 6 cm, donc raser un mur ne coutait pas plus cher que de passer au
         # large -> le chemin collait aux obstacles. L'inflation ne bloque
         # jamais au-dela du rayon inscrit du robot : elle ne fait qu'orienter.
+        # 0.30/2.5 = optimum MESURE (nodes/pathcheck.py, 8 buts a 1.6 m).
+        # 0.45 : chemins 8 % plus longs pour exactement la meme marge.
+        # 0.60 : contre-productif, marge tombee a 0.00 m -> une inflation trop
+        # large sature la carte, les halos se recouvrent, le gradient s'aplatit
+        # et le planificateur n'a plus rien pour se decider : il reprend le plus
+        # court, donc il rase. Ne pas monter au-dela de 0.30 dans un interieur.
         inflation_radius: 0.30
         cost_scaling_factor: 2.5
       always_send_full_costmap: True
