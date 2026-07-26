@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Republie /odom (nav_msgs/Odometry) en transformee TF odom -> base_link.
 
-Necessaire pour visualiser l'odometrie dans RViz : le firmware micro-ROS publie
-le message /odom mais pas la TF. Sans TF, RViz ne connait pas le frame "odom"
-et n'affiche rien.
+>>> OBSOLETE des que l'EKF tourne sur le robot. <<<
 
-Usage : python3 odom_tf_broadcaster.py   (agent micro-ROS deja lance)
+Ecrit avant l'integration de robot_localization, quand rien ne publiait la TF
+odom -> base_link. Aujourd'hui c'est l'EKF (service mowbot-ekf) qui la publie,
+a partir de la fusion roues + gyro. Lancer ce script EN PLUS donne DEUX
+emetteurs pour la meme transformation : la TF oscille entre les deux valeurs,
+et les consommateurs rejettent les messages ("Message Filter dropping
+message ... queue is full" dans RViz, scans ignores par slam_toolbox).
+
+Le script refuse donc de demarrer si /odometry/filtered est publie.
+Il ne reste utile que pour un banc SANS EKF (firmware seul).
 """
 
 import rclpy
@@ -41,16 +47,41 @@ class OdomTfBroadcaster(Node):
         self.br.sendTransform(t)
 
 
+def ekf_is_running(node, timeout=3.0):
+    """Vrai si /odometry/filtered a un editeur : l'EKF publie deja la TF."""
+    import time
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if node.count_publishers('/odometry/filtered') > 0:
+            return True
+        rclpy.spin_once(node, timeout_sec=0.2)
+    return False
+
+
 def main():
     rclpy.init()
     node = OdomTfBroadcaster()
+    if ekf_is_running(node):
+        node.get_logger().error(
+            "l'EKF publie deja odom -> base_link (/odometry/filtered actif). "
+            "Deux emetteurs feraient osciller la TF et RViz rejetterait les "
+            "messages. Arret. Forcer : --force")
+        import sys
+        if '--force' not in sys.argv:
+            node.destroy_node()
+            rclpy.shutdown()
+            return
+        node.get_logger().warning('--force : TF dupliquee assumee')
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # rclpy.shutdown() peut avoir deja ete appele (Ctrl+C traite par le
+        # contexte) -> sans ce garde, on terminait sur une RCLError bruyante.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
