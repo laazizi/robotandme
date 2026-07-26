@@ -167,11 +167,15 @@ local_costmap:
       # inexecutables -- le planificateur global les jugeait franchissables et
       # le controleur refusait ensuite d'y aller.
       footprint_padding: 0.01
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_transient_local: True
-        transform_tolerance: 0.3
+      # PAS de static_layer ici, volontairement. Le costmap LOCAL doit refleter
+      # ce que le lidar voit MAINTENANT. En y superposant la carte SLAM, il
+      # heritait de tous les faux echos accumules dans la carte -- et ceux-la
+      # ne s'effacent jamais par balayage laser, contrairement aux obstacles
+      # observes. Constat : le lidar voyait l'obstacle a 0.38 m alors que la
+      # carte gardait une cellule occupee a 0.26 m, pile sur le bord du
+      # footprint -> "No valid trajectories out of 860", blocage total.
+      # La carte statique reste utilisee par le costmap GLOBAL, pour planifier.
+      plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
