@@ -56,14 +56,20 @@ mkdir -p "$DEST"/{bin,nodes,config,www,maps}
 cp -r "$SRC/bin/." "$DEST/bin/"
 cp -r "$SRC/nodes/." "$DEST/nodes/"
 cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
-# configs : ne pas ecraser un reglage local existant (sauvegarde si different)
+# configs : ne pas ecraser un reglage local existant (sauvegarde si different).
+# __HOME__ / __USER__ sont substitues : les YAML n'acceptent pas de variable
+# d'environnement, et un chemin en dur casse des qu'on change de SBC.
+# La comparaison porte sur la version DEJA substituee, sinon chaque
+# installation croit voir une difference et empile des .local.* inutiles.
 for f in "$SRC"/config/*; do
   b="$(basename "$f")"
-  if [ -f "$DEST/config/$b" ] && ! cmp -s "$f" "$DEST/config/$b"; then
+  case "$b" in *.local.*) continue;; esac
+  sed -e "s|__HOME__|$HOME|g" -e "s|__USER__|$USER_NAME|g" "$f" > "/tmp/mowbot_cfg_$b"
+  if [ -f "$DEST/config/$b" ] && ! cmp -s "/tmp/mowbot_cfg_$b" "$DEST/config/$b"; then
     cp "$DEST/config/$b" "$DEST/config/$b.local.$(date +%Y%m%d_%H%M%S)"
     echo "   (ancien $b sauvegarde en .local.*)"
   fi
-  cp "$f" "$DEST/config/$b"
+  mv "/tmp/mowbot_cfg_$b" "$DEST/config/$b"
 done
 chmod +x "$DEST"/bin/*.sh "$DEST"/bin/mowbot 2>/dev/null || true
 

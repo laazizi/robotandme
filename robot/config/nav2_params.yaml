@@ -104,9 +104,9 @@ local_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 5 cm : le footprint polygonal decrit deja la taille REELLE du robot
-        # (+2 cm de padding), l'inflation n'est plus la que pour lisser la
-        # trajectoire. A 10 cm elle refusait des passages franchissables.
+        # LOCAL = execution. Reste bas (5 cm) : c'est cette couche qui faisait
+        # refuser des passages franchissables ("ca bloque pour rien"). La
+        # securite reelle est assuree par le footprint, qui est exact.
         inflation_radius: 0.05
         cost_scaling_factor: 5.0
       always_send_full_costmap: True
@@ -145,16 +145,21 @@ global_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 5 cm : le footprint polygonal decrit deja la taille REELLE du robot
-        # (+2 cm de padding), l'inflation n'est plus la que pour lisser la
-        # trajectoire. A 10 cm elle refusait des passages franchissables.
-        inflation_radius: 0.05
-        cost_scaling_factor: 5.0
+        # GLOBAL = planification. Halo LARGE et gradient DOUX : c'est ce qui
+        # ecarte le chemin des obstacles. A 5 cm le cout retombait a zero des
+        # 6 cm, donc raser un mur ne coutait pas plus cher que de passer au
+        # large -> le chemin collait aux obstacles. L'inflation ne bloque
+        # jamais au-dela du rayon inscrit du robot : elle ne fait qu'orienter.
+        inflation_radius: 0.30
+        cost_scaling_factor: 2.5
       always_send_full_costmap: True
 
 map_server:
   ros__parameters:
-    yaml_filename: "/home/nvidia/maps/arena.yaml"
+    # __HOME__ est substitue a l'installation (install.sh) : aucun chemin
+    # en dur, l'arborescence doit suivre le SBC (Jetson -> Raspberry Pi).
+    # Inutilise tant qu'on cartographie en SLAM (slam_toolbox fournit la carte).
+    yaml_filename: "__HOME__/mowbot/maps/arena.yaml"
 
 planner_server:
   ros__parameters:

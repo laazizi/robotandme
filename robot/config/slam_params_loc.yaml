@@ -59,6 +59,9 @@ slam_toolbox:
     use_response_expansion: true
 
     # --- LOCALISATION dans une carte deja construite ---
-    map_file_name: /home/nvidia/maps/mowbot
+    # __HOME__ substitue par install.sh. Pointait sur ~/maps/mowbot alors que
+    # save_map.sh ecrit dans ~/mowbot/maps/ : le rechargement de carte en mode
+    # localisation ne trouvait donc jamais le fichier.
+    map_file_name: __HOME__/mowbot/maps/mowbot
     map_start_at_dock: true          # demarre a la pose d origine de la carte
     # (un clic RViz 2D Pose Estimate recale si le robot n est pas la)
