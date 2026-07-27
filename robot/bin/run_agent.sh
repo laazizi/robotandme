@@ -3,7 +3,7 @@
 # Hard reset esptool avant lancement : l'ESP32 peut rester bloque en bootloader
 # (port muet, roues mortes) quand DTR/RTS sont manipules a l'ouverture.
 source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
-BAUD=115200
+BAUD="${MOWBOT_ESP32_BAUD:-460800}"
 AGENT="${MOWBOT_AGENT_BIN:-/usr/local/bin/MicroXRCEAgent}"
 
 # Trouve le port de l'ESP32. Le lien udev est prioritaire ; le repli ne se
@@ -35,7 +35,7 @@ find_port() {
       continue
     fi
     # firmware micro-ROS deja actif ? sa signature suffit, sans reset
-    stty -F "$d" 115200 raw -echo 2>/dev/null
+    stty -F "$d" "$BAUD" raw -echo 2>/dev/null
     if timeout 3 cat "$d" 2>/dev/null | head -c 600 | grep -qa "XRCE"; then
       echo "$d"; return
     fi

@@ -71,7 +71,7 @@ for dev in /dev/ttyUSB* /dev/ttyACM*; do
   # 2a) ESP32 dont le FIRMWARE micro-ROS tourne deja : il emet en continu des
   #     paquets XRCE-DDS, reconnaissables a la chaine "XRCE". Teste en premier
   #     car c'est non intrusif (aucun reset) et sans dependance a esptool.
-  stty -F "$dev" 115200 raw -echo 2>/dev/null
+  stty -F "$dev" "${MOWBOT_ESP32_BAUD:-460800}" raw -echo 2>/dev/null
   # `timeout 3 cat` peut rester bloque : cat s'immobilise dans l'ouverture du
   # port quand l'adaptateur n'affirme pas de porteuse, et timeout ne peut alors
   # pas l'interrompre. Constate : detect_devices bloque 10 min sur un port.

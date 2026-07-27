@@ -147,6 +147,17 @@
 // ============================================================
 // Contrôle
 // ============================================================
+// Debit du transport micro-ROS. DOIT correspondre a MOWBOT_ESP32_BAUD dans
+// robot/bin/mowbot_env.sh (l'agent doit ouvrir le port au meme debit).
+//
+// 115200 bauds = 11520 octets/s, or les messages ROS sont volumineux :
+// Odometry ~730 o (dont 576 rien que pour les deux covariances 6x6 en double)
+// et Imu ~330 o. Publier /odom a 10 Hz et /imu a 20 Hz demande donc
+// ~13900 o/s : le lien etait sature, et les DEUX topics tombaient sous leur
+// cible (mesure : /odom 2.9 Hz au lieu de 10, /imu 13 Hz au lieu de 20).
+// 460800 bauds donne 46080 o/s, soit 3x de marge encapsulation comprise.
+#define SERIAL_BAUDRATE       460800
+
 #define CONTROL_PERIOD_MS     20      // boucle PID à 50 Hz (fluide)
 #define ODOM_PUBLISH_DIV      5       // publie /odom 1 cycle sur 5 -> 10 Hz (limite débit série 115200)
 #define IMU_PERIOD_MS         50      // publication /imu/data_raw à 20 Hz

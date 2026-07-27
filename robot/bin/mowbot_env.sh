@@ -46,9 +46,14 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 [ -f "$HOME/lidar_ws/install/setup.bash" ] && export MOWBOT_LIDAR_WS="$HOME/lidar_ws/install"
 
 # --- Peripheriques : liens udev, avec repli par detection -------------------
-# Les liens sont crees par detect_devices.sh (specifique a chaque machine :
-# les 2 CP2102 - ESP32 et lidar - ont le MEME numero de serie, on ne peut donc
-# les distinguer que par port USB physique, qui differe d'un SBC a l'autre).
+# Les liens sont crees par detect_devices.sh, qui identifie chaque appareil par
+# ce qu'il RACONTE (trames XRCE, bootloader, signature de lidar) puis ecrit une
+# regle udev sur le critere le plus stable disponible : serial unique, sinon
+# vendor:product unique, sinon port physique.
+# Debit serie de l'ESP32 : DOIT correspondre a SERIAL_BAUDRATE dans
+# main/config.h du firmware. Un ecart et l'agent ne dialogue pas du tout.
+export MOWBOT_ESP32_BAUD="${MOWBOT_ESP32_BAUD:-460800}"
+
 export DEV_ESP32="/dev/mowbot_esp32"
 export DEV_LIDAR="/dev/mowbot_lidar"
 export DEV_IMU="/dev/mowbot_imu"
