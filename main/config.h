@@ -30,17 +30,17 @@
 #define PIN_ENC_R_A       33     // Bleu
 #define PIN_ENC_R_B       32     // Orange
 
-// I2C de l'IMU sur 1/2 (et non les 7/8 par defaut) pour regrouper le cablage
+// I2C de l'IMU sur 3/2 (et non les 7/8 par defaut) pour regrouper le cablage
 // sur le meme header que moteurs et encodeurs. Choix VERIFIE :
-//  - sur l'ESP32-P4 les broches de strapping sont GPIO34..38, PAS 0/1/2 comme
-//    sur l'ESP32 classique : 1 et 2 sont donc des GPIO ordinaires, sans effet
+//  - sur l'ESP32-P4 les broches de strapping sont GPIO34..38, PAS 0..3 comme
+//    sur l'ESP32 classique : 2 et 3 sont donc des GPIO ordinaires, sans effet
 //    au demarrage ;
 //  - elles n'apparaissent dans aucune reservation de la carte (Ethernet
 //    31/50/51/52, audio 9..13, ampli 53) ;
 //  - aucun conflit avec le projet, contrairement a 47 qui porte l'encodeur
 //    gauche et a 48 note inaccessible au bring-up.
 // L'I2C est librement placable : le P4 dispose d'une matrice de commutation.
-#define PIN_IMU_SDA       1
+#define PIN_IMU_SDA       3
 #define PIN_IMU_SCL       2
 
 // -- geometrie robot 12 V (calibree au sol) --
