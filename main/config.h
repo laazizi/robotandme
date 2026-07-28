@@ -56,10 +56,19 @@
                                        // ecrase). L'ecart de sens indique un
                                        // changement de roues, de pneus ou de charge
                                        // depuis cette premiere calibration.
-#define TRACK_WIDTH_M         0.465f   // entraxe [m] — RECALIBRE, et confirme par
-                                       // DEUX methodes independantes :
-                                       //   mesure au metre           : 0.46
-                                       //   gyro + encodeurs (0.4653) : 1 % d'ecart
+#define TRACK_WIDTH_M         0.4607f  // entraxe [m] — RECALIBRE, et confirme par
+                                       // TROIS methodes independantes :
+                                       //   mesure au metre              : 0.46
+                                       //   gyro + encodeurs             : 0.4653
+                                       //   rotations reelles au repere  : 0.4607
+                                       // Affinage final (nodes/turn360.py) : a 0.465
+                                       // le robot depassait de 3 deg sur un tour et de
+                                       // 10 deg sur trois, soit ~0.9 % de trop.
+                                       //   0.465 x 1080/1090 = 0.4607
+                                       // Les deux mesures concordant (0.83 % et
+                                       // 0.93 %), l'ecart etait reel et non du bruit
+                                       // de lecture -- un seul tour n'aurait pas
+                                       // permis de trancher.
                                        // L'ancien 0.59 sur-estimait de 27 % : les
                                        // consignes angulaires etaient donc fausses
                                        // d'autant (le robot tournait trop).

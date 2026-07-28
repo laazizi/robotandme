@@ -37,10 +37,25 @@ static const char *TAG = "imu";
 // Lecture de plusieurs octets : le bit 7 de l'adresse demande
 // l'auto-incrementation. Sans lui on relit six fois le meme registre.
 #define L3G_AUTO_INC       0x80
-// ±500 dps a 17.5 mdps/LSB. Choix : le robot tourne a ~14 deg/s, donc ±250 dps
-// suffirait et serait deux fois plus fin, mais une manipulation a la main
-// saturerait la mesure -- ±500 garde de la marge sans sacrifier la resolution.
-#define L3G_GYRO_SCALE  (0.0175f * ((float)M_PI / 180.0f))
+// ±500 dps a 17.5 mdps/LSB nominal. Choix de l'echelle : le robot tourne a
+// ~14 deg/s, donc ±250 dps serait deux fois plus fin, mais une manipulation a
+// la main saturerait la mesure -- ±500 garde de la marge.
+//
+// FACTEUR DE CALIBRATION 1.010, obtenu par ENCADREMENT sur le robot A, en
+// prenant l'odometrie comme reference (elle est validee : 1 m juste au metre,
+// entraxe a 0.28 % sur 3 tours) :
+//   facteur 1.0000 -> gyro 1064.5 deg pour 1080 -> -1.44 %
+//   facteur 1.0174 -> gyro 1092.7 deg pour 1080 -> +1.06 %
+//   interpolation  -> erreur nulle vers 1.010
+// Le premier essai a 1.0174 SUR-corrigeait : partir de la seule mesure "il
+// sous-estime de 1.7 %" ne suffisait pas, il fallait encadrer.
+//
+// NE PAS CHERCHER MIEUX QUE ~1 % : la repetabilite du capteur est de cet
+// ordre. Avec le facteur 1.0174 on attendait 1064.5 x 1.0174 = 1082.9 deg et
+// on a lu 1092.7 -- 10 deg d'ecart sur un capteur inchange. Une tolerance de
+// +/-10 % sur la sensibilite est d'ailleurs normale pour ce composant.
+#define L3G_GYRO_CAL    1.010f
+#define L3G_GYRO_SCALE  (0.0175f * L3G_GYRO_CAL * ((float)M_PI / 180.0f))
 
 // ADXL345
 #define ADXL_DEVID         0x00
