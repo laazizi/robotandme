@@ -44,9 +44,33 @@
 #define PIN_IMU_SCL       2
 
 // -- geometrie robot 12 V (calibree au sol) --
-#define WHEEL_RADIUS_M        0.0698f  // rayon EFFECTIF [m] : nominal 0.075 (Ø15) corrige
-                                       // (odom 29 cm pour 27 reels, pneu ecrase sous charge).
-#define TRACK_WIDTH_M         0.59f    // entraxe EFFECTIF [m] : physique 0.43 + patinage rotation
+#define WHEEL_RADIUS_M        0.0753f  // rayon EFFECTIF [m] — RECALIBRE au sol.
+                                       // Mesure (nodes/calib_1m.py) : l'odometrie
+                                       // annoncait 102.9 cm pour 111 cm reels, soit
+                                       // une SOUS-estimation de 7.3 %.
+                                       //   0.0698 x 111/102.9 = 0.0753
+                                       // Proche du nominal 0.075 (Ø15 cm), ce qui
+                                       // conforte la mesure.
+                                       // Historique : 0.0698 venait d'une mesure
+                                       // inverse (odom 29 cm pour 27 reels, pneu
+                                       // ecrase). L'ecart de sens indique un
+                                       // changement de roues, de pneus ou de charge
+                                       // depuis cette premiere calibration.
+#define TRACK_WIDTH_M         0.465f   // entraxe [m] — RECALIBRE, et confirme par
+                                       // DEUX methodes independantes :
+                                       //   mesure au metre           : 0.46
+                                       //   gyro + encodeurs (0.4653) : 1 % d'ecart
+                                       // L'ancien 0.59 sur-estimait de 27 % : les
+                                       // consignes angulaires etaient donc fausses
+                                       // d'autant (le robot tournait trop).
+                                       //
+                                       // METHODE (nodes/calib_track.py) : comparer la
+                                       // rotation du GYRO a celle que les vitesses de
+                                       // roue MESUREES impliquent, et non a la
+                                       // consigne. Sinon on melange deux causes : ici
+                                       // les roues ne font que 83 % de leur consigne,
+                                       // ce qui ferait conclure a tort que l'entraxe
+                                       // est trop PETIT alors qu'il etait trop GRAND.
 #define TICKS_PER_WHEEL_REV   2560.0f  // 64 CPR x4 quadrature x reducteur 10:1
 
 #define MOTOR_L_INVERT    0
