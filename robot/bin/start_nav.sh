@@ -67,9 +67,38 @@ if [ "$MAP_OK" = "0" ]; then
   mowbot_log "            le planner echouera. Verifier : mowbot logs mowbot-nav"
 fi
 
+# --- profil de VITESSE selon le robot --------------------------------------
+# Les deux chassis n'ont pas du tout la meme dynamique (1.0 m/s contre
+# 0.06 m/s). Appliquer le profil du 24 V au 12 V le faisait ramper a 5.5 cm/s.
+# On genere donc un fichier de parametres EFFECTIF, sans toucher a l'original.
+PARAMS="$MOWBOT_CONFIG/nav2_params.yaml"
+[ -f "$MOWBOT_HOME/robot_profile.env" ] && . "$MOWBOT_HOME/robot_profile.env"
+ROBOT="${MOWBOT_ROBOT:-b}"          # defaut b : des vitesses basses ne cassent rien
+if [ -f "$MOWBOT_CONFIG/speeds.env" ]; then
+  . "$MOWBOT_CONFIG/speeds.env"
+  P=$(echo "$ROBOT" | tr a-z A-Z)
+  eval "MVX=\$${P}_MAX_VEL_X;   MNX=\$${P}_MIN_VEL_X;  MSXY=\$${P}_MAX_SPEED_XY"
+  eval "MVT=\$${P}_MAX_VEL_THETA; AX=\$${P}_ACC_LIM_X; AT=\$${P}_ACC_LIM_THETA"
+  eval "DX=\$${P}_DECEL_LIM_X;  DT=\$${P}_DECEL_LIM_THETA; ST=\$${P}_SIM_TIME"
+  if [ -n "$MVX" ]; then
+    PARAMS="$MOWBOT_LOGS/nav2_params_effectif.yaml"
+    sed -e "s/^\( *min_vel_x:\).*/\1 $MNX/" \
+        -e "s/^\( *max_vel_x:\).*/\1 $MVX/" \
+        -e "s/^\( *max_speed_xy:\).*/\1 $MSXY/" \
+        -e "s/^\( *max_vel_theta:\).*/\1 $MVT/" \
+        -e "s/^\( *acc_lim_x:\).*/\1 $AX/" \
+        -e "s/^\( *acc_lim_theta:\).*/\1 $AT/" \
+        -e "s/^\( *decel_lim_x:\).*/\1 $DX/" \
+        -e "s/^\( *decel_lim_theta:\).*/\1 $DT/" \
+        -e "s/^\( *sim_time:\).*/\1 $ST/" \
+        "$MOWBOT_CONFIG/nav2_params.yaml" > "$PARAMS"
+    mowbot_log "profil robot $ROBOT : vitesse max $MVX m/s, rotation $MVT rad/s"
+  fi
+fi
+
 mowbot_log "demarrage nav2"
 ros2 launch nav2_bringup navigation_launch.py \
-  params_file:="$MOWBOT_CONFIG/nav2_params.yaml" use_sim_time:=false \
+  params_file:="$PARAMS" use_sim_time:=false \
   > "$MOWBOT_LOGS/nav2.log" 2>&1 < /dev/null &
 NAV2_PID=$!
 mowbot_log "nav2 monte en ~30 s"
