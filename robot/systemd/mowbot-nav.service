@@ -4,12 +4,27 @@ After=network-online.target mowbot-lidar.service mowbot-ekf.service mowbot-tf.se
 Wants=network-online.target mowbot-lidar.service mowbot-ekf.service mowbot-tf.service
 
 [Service]
-Type=oneshot
+# Type=simple et NON oneshot : start_nav.sh reste au premier plan (il termine
+# par `wait`), donc SLAM et nav2 restent dans le groupe de controle du service.
+#
+# Avec l'ancien montage (oneshot + setsid + RemainAfterExit), les processus
+# etaient DETACHES du service :
+#   - systemd ne pouvait plus les arreter -> "stop-sigterm timed out",
+#     "Failed to kill control group", service en echec ;
+#   - ils survivaient a chaque redemarrage -> 2 slam_toolbox, 2 ekf, deux
+#     emetteurs pour la meme TF, qui se contredisaient ;
+#   - le SLAM rejetait alors les scans et /map n'etait plus publie.
+Type=simple
 User=__USER__
 Environment=HOME=__HOME__
 ExecStartPre=/bin/sleep 25
 ExecStart=/bin/bash __HOME__/mowbot/bin/start_nav.sh
-RemainAfterExit=yes
+# KillMode=control-group (defaut) : tout le groupe est arrete, y compris les
+# enfants. TimeoutStopSec genereux car nav2 met quelques secondes a rendre la
+# main proprement.
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

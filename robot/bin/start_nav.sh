@@ -7,7 +7,11 @@ for p in nav2_bringup bt_navigator controller_server planner_server behavior_ser
 done
 sleep 3
 mowbot_log "demarrage SLAM"
-setsid bash "$MOWBOT_BIN/run_slam.sh" > "$MOWBOT_LOGS/slam.log" 2>&1 < /dev/null &
+# PAS de setsid : le processus doit rester dans le groupe de controle du
+# service, sinon systemd ne peut plus l'arreter et il survit aux redemarrages
+# (on se retrouvait avec deux slam_toolbox et deux EKF publiant la meme TF).
+bash "$MOWBOT_BIN/run_slam.sh" > "$MOWBOT_LOGS/slam.log" 2>&1 < /dev/null &
+SLAM_PID=$!
 sleep 8
 
 # slam_toolbox est un noeud a CYCLE DE VIE : lance seul il reste
@@ -64,7 +68,14 @@ if [ "$MAP_OK" = "0" ]; then
 fi
 
 mowbot_log "demarrage nav2"
-setsid ros2 launch nav2_bringup navigation_launch.py \
+ros2 launch nav2_bringup navigation_launch.py \
   params_file:="$MOWBOT_CONFIG/nav2_params.yaml" use_sim_time:=false \
   > "$MOWBOT_LOGS/nav2.log" 2>&1 < /dev/null &
+NAV2_PID=$!
 mowbot_log "nav2 monte en ~30 s"
+
+# On reste au premier plan : le service est Type=simple, et c'est ce `wait` qui
+# maintient SLAM et nav2 dans son groupe de controle. A l'arret, systemd tue le
+# groupe entier -- plus de processus orphelins.
+trap 'mowbot_log "arret : SLAM et nav2"; kill $SLAM_PID $NAV2_PID 2>/dev/null' INT TERM
+wait
