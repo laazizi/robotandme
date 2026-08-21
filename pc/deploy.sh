@@ -36,7 +36,10 @@ declare -A USER_OF=(     [jetson]="nvidia"  [pi]="nvidia"  )
 declare -A MACS_OF=(
   [jetson]="48:8f:4c:ff:dd:03"
   # Pi 5 puis Pi 3B+ : la meme carte SD passe de l'une a l'autre
-  [pi]="2c:cf:67:30:a2:bc b8:27:eb:9a:8f:3a"
+  # La meme carte SD passe d'un modele a l'autre : on cherche les trois.
+  # Prefixes constructeur : b8:27:eb (Pi 3), dc:a6:32 / e4:5f:01 (Pi 4),
+  # 2c:cf:67 (Pi 5).
+  [pi]="e4:5f:01:6b:91:6f 2c:cf:67:30:a2:bc b8:27:eb:9a:8f:3a"
 )
 # Adresse de secours : la Jetson expose une IP fixe sur son port USB-C
 declare -A FALLBACK_IP_OF=( [jetson]="192.168.55.1" [pi]="" )

@@ -37,6 +37,7 @@ from sensor_msgs.msg import LaserScan
 
 HEADER = 0x54
 VERLEN = 0x2C
+MARKER = bytes((HEADER, VERLEN))   # motif cherche par bytes.find()
 FRAME_LEN = 47
 POINTS_PER_FRAME = 12
 
@@ -94,7 +95,11 @@ class LD14(Node):
         self.speed_hz = 0.0
 
         self.get_logger().info(f'LD14 sur {port} @ {baud} -> {g("topic")}')
-        self.create_timer(0.002, self.poll)
+        # 100 Hz suffit : le lidar debite ~9 ko/s, soit ~90 octets par appel.
+        # Un timer a 500 Hz faisait 78 % de CPU sur une Raspberry Pi 4 -- la
+        # machine entiere saturait (charge 25 sur 4 coeurs) et l'EKF comme le
+        # SLAM n'avaient plus de temps pour tourner.
+        self.create_timer(0.01, self.poll)
         self.create_timer(20.0, self.report)
 
     def report(self):
@@ -114,23 +119,29 @@ class LD14(Node):
             self.get_logger().warning(f'lecture serie : {e}')
             return
 
-        # On resynchronise sur l'en-tete a chaque passage : un octet perdu ne
-        # doit pas decaler durablement le decodage.
+        # Resynchronisation sur l'en-tete via bytes.find(), implemente en C :
+        # parcourir le tampon octet par octet en Python coutait 78 % de CPU.
+        # Un octet perdu ne doit pas decaler durablement le decodage, d'ou la
+        # recherche du motif a chaque passage plutot qu'un simple pas de 47.
+        buf = self.buf
         i = 0
-        while i + FRAME_LEN <= len(self.buf):
-            if self.buf[i] != HEADER or self.buf[i + 1] != VERLEN:
-                i += 1
-                continue
-            frame = bytes(self.buf[i:i + FRAME_LEN])
+        n = len(buf)
+        while True:
+            j = buf.find(MARKER, i)
+            if j < 0 or j + FRAME_LEN > n:
+                break
+            frame = bytes(buf[j:j + FRAME_LEN])
             if self.check_crc and crc8(frame[:-1]) != frame[-1]:
                 self.n_bad_crc += 1
-                i += 1          # +1 et non +47 : l'en-tete etait peut-etre fortuit
+                i = j + 1       # +1 et non +47 : l'en-tete etait peut-etre fortuit
                 continue
             self.decode_frame(frame)
-            i += FRAME_LEN
-        del self.buf[:i]
-        if len(self.buf) > 8192:      # garde-fou si le flux devient illisible
-            del self.buf[:-1024]
+            i = j + FRAME_LEN
+        # on ne conserve que la queue incomplete ; un seul del, jamais dans la boucle
+        if i:
+            del buf[:i]
+        if len(buf) > 8192:      # garde-fou si le flux devient illisible
+            del buf[:-1024]
 
     def decode_frame(self, f):
         # NE PAS nommer cette methode `handle` : rclpy.Node expose un attribut
