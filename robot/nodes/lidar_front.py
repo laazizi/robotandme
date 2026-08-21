@@ -30,6 +30,11 @@ if not scans:
 m = scans[-1]
 r = np.array(m.ranges, dtype=float)
 ang = m.angle_min + np.arange(len(r)) * m.angle_increment
+# Normalisation en -pi..+pi : le noeud Python publie deja dans cette plage,
+# mais le driver natif ldlidar_sl_ros2 sort des angles de 0 a 2*pi. Sans cette
+# normalisation les secteurs a angle negatif ne trouvaient jamais rien, et le
+# diagnostic concluait a tort a un boitier tourne.
+ang = np.mod(ang + np.pi, 2 * np.pi) - np.pi
 ok = np.isfinite(r) & (r > m.range_min) & (r < m.range_max)
 if not ok.any():
     print("aucun echo valide"); raise SystemExit(1)

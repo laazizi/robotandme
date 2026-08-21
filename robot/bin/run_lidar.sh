@@ -25,7 +25,7 @@ if [ -z "$MODEL" ]; then
   mowbot_log "modele de lidar suppose : $MODEL"
 fi
 # LD06/LD19 : meme protocole que le LD14, seule la vitesse serie change
-[ "$MODEL" = "ld06" ] && MODEL=ld14 && LD_BAUD=230400
+[ "$MODEL" = "ld06" ] && LD_BAUD=230400
 
 mowbot_wait_dev "$DEV_LIDAR" 20 || mowbot_log "ATTENTION : $DEV_LIDAR absent"
 
@@ -45,8 +45,32 @@ case "$MODEL" in
     # binaire appele en direct : `ros2 run` echoue en contexte systemd
     exec "$N10_BIN" --ros-args --params-file "$MOWBOT_CONFIG/lidar_n10.yaml"
     ;;
-  ld14)
-    # LD_BAUD n'est defini que pour un LD06/LD19 (230400) : sinon le YAML decide
+  ld14|ld06|ld19)
+    # Driver NATIF prioritaire : le noeud Python equivalent coute ~25 % de CPU
+    # sur une Raspberry Pi 4 (decodage trame par trame en Python), contre
+    # quelques pourcents en C++. Une tentative de vectorisation numpy a ete
+    # ESSAYEE et ABANDONNEE : sur des lots de 1 a 2 trames, l'overhead depasse
+    # le gain -- 34 % de CPU et le scan tombe a 3.7 Hz.
+    LD_WS="${MOWBOT_LDLIDAR_WS:-$HOME/ldlidar_ws/install}"
+    LD_BIN="$LD_WS/ldlidar_sl_ros2/lib/ldlidar_sl_ros2/ldlidar_sl_ros2_node"
+    if [ -x "$LD_BIN" ]; then
+      export LD_LIBRARY_PATH="$LD_WS/ldlidar_sl_ros2/lib:$LD_LIBRARY_PATH"
+      export AMENT_PREFIX_PATH="$LD_WS/ldlidar_sl_ros2:$AMENT_PREFIX_PATH"
+      # Le driver publie sur le topic demande ; on le dirige vers /scan_raw pour
+      # que scan_fix.py garde son role (points fixes, masquage, filtrage).
+      # laser_scan_dir=true : sens trigonometrique, comme le noeud Python.
+      mowbot_log "driver NATIF ldlidar_sl_ros2"
+      exec "$LD_BIN" --ros-args \
+        -p product_name:=LDLiDAR_LD14 \
+        -p port_name:="$DEV_LIDAR" \
+        -p serial_baudrate:="${LD_BAUD:-115200}" \
+        -p laser_scan_topic_name:=scan_raw \
+        -p point_cloud_2d_topic_name:=pointcloud2d_raw \
+        -p frame_id:=laser_link \
+        -p laser_scan_dir:=true \
+        -p enable_angle_crop_func:=false
+    fi
+    mowbot_log "driver natif absent -> noeud Python (plus gourmand en CPU)"
     exec python3 "$MOWBOT_NODES/ld14_node.py" \
       --ros-args --params-file "$MOWBOT_CONFIG/lidar_ld14.yaml" \
       ${LD_BAUD:+-p baudrate:=$LD_BAUD}

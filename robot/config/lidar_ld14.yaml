@@ -12,6 +12,14 @@ ld14:
     # Le LD14 fait croitre son angle dans le sens horaire, ROS attend
     # l'inverse : sans cette inversion la carte serait un miroir.
     invert_angle: true
-    # Rejette les trames dont le CRC8 est faux plutot que d'injecter des
-    # mesures corrompues dans la carte.
-    check_crc: true
+    # CRC DESACTIVE. Le calcul boucle sur 46 octets par trame, en Python, a
+    # ~200 trames/s : c'est l'essentiel des 25 % de CPU du driver, sur une
+    # Raspberry Pi 4 deja saturee par nav2 (charge 24, 73 C).
+    # Deux raisons de s'en passer ICI :
+    #   - il n'a jamais rien rejete : "CRC invalides 0.0 %" sur des dizaines de
+    #     milliers de trames (liaison courte, 115200 bauds) ;
+    #   - scan_fix.py supprime deja les points ISOLES, et une trame corrompue
+    #     produit precisement ce genre d'aberration.
+    # A REACTIVER si le cable du lidar est rallonge ou passe pres des moteurs :
+    # des parasites deviendraient alors plausibles.
+    check_crc: false

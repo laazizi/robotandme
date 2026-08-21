@@ -11,7 +11,11 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    controller_frequency: 20.0
+    # 10 Hz et non 20 : a 0.30 m/s le robot avance 3 cm entre deux cycles, ce
+    # qui reste tres fin devant son gabarit. Sur une Raspberry Pi 4, 20 Hz
+    # doublait inutilement la charge du controleur -- or c'est la saturation
+    # (charge 24 sur 4 coeurs) qui faisait rejeter les messages dans RViz.
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 3.0
@@ -152,7 +156,10 @@ local_costmap:
       rolling_window: true
       width: 3
       height: 3
-      resolution: 0.02
+      # 4 cm au lieu de 2 : QUATRE fois moins de cellules a inflater et a
+      # parcourir a chaque cycle. C'est le plus gros gain de charge, et 4 cm
+      # reste fin face a un robot de 46 cm d'entraxe.
+      resolution: 0.04
       # Contour REEL (base_link = milieu de l'essieu), releve sur photo :
       #   - disque bois rayon 0.22
       #   - point le plus large = les PNEUS, +/-0.26 (entraxe 0.48 + largeur roue)
@@ -208,7 +215,7 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      resolution: 0.02
+      resolution: 0.04
       # meme contour reel que le local_costmap (cf. commentaire plus haut)
       footprint: "[[0.22, 0.10], [0.08, 0.26], [-0.08, 0.26], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.26], [0.08, -0.26], [0.22, -0.10]]"
       footprint_padding: 0.01
