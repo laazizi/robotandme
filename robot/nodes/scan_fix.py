@@ -66,6 +66,7 @@ class ScanFix(Node):
         self.n_dropped = 0
         self.n_seen = 0
         self.stamp_warned = False
+        self.shift_logged = False
         self.get_logger().info(
             f'/scan_raw -> /scan : {N} points, {len(SELF_SECTORS)} secteurs robot masques'
             f'{", filtre points isoles actif" if ISO_ENABLE else ""}')
@@ -107,12 +108,47 @@ class ScanFix(Node):
         self.n_seen += int(valid.sum())
         return r
 
+    def angle_shift(self, m):
+        """Ramene le scan a la convention CANONIQUE -pi..+pi.
+
+        Les deux pilotes du LD14 lisent le meme flux materiel mais n'etiquettent
+        pas ses angles pareil :
+          - nodes/ld14_node.py (Python)   annonce -pi..+pi
+          - ldlidar_sl_ros2   (natif C++) annonce   0..2*pi
+        Comme ils partent du MEME zero materiel, leurs etiquettes different de
+        exactement 180 deg. Basculer d'un pilote a l'autre faisait donc tourner
+        tout le scan d'un demi-tour, sans rien changer d'autre.
+
+        Mesure a l'appui (nodes/loc_check.py, robot A) : accord scan/carte de
+        17.5 % avec le natif brut, 98.0 % en appliquant -180 deg.
+
+        On normalise ICI, et pas dans la TF : `MOWBOT_LIDAR_YAW=180` decrit un
+        fait PHYSIQUE (le boitier du lidar est monte a l'envers) et doit rester
+        vrai quel que soit le pilote. Compenser dans la TF marcherait mais
+        rendrait la geometrie du robot dependante d'un choix logiciel -- le
+        piege reviendrait au prochain changement de driver.
+        """
+        if m.angle_min > -0.1 and m.angle_max > 6.0:
+            return -math.pi
+        return 0.0
+
     def cb(self, m):
         n_in = len(m.ranges)
         if n_in < 2:
             return
+        shift = self.angle_shift(m)
+        amin, amax = m.angle_min + shift, m.angle_max + shift
+        if not self.shift_logged:
+            self.shift_logged = True
+            if shift:
+                self.get_logger().info(
+                    f'convention d\'angles du driver : {math.degrees(m.angle_min):.0f}'
+                    f'..{math.degrees(m.angle_max):.0f} deg -> ramenee a '
+                    f'{math.degrees(amin):.0f}..{math.degrees(amax):.0f} deg')
         if self.mask is None:
-            self.mask = self.build_mask(m.angle_min, m.angle_max)
+            # mask construit sur les angles CORRIGES : les secteurs de
+            # SELF_SECTORS sont des directions physiques mesurees sur le robot.
+            self.mask = self.build_mask(amin, amax)
 
         src = np.linspace(m.angle_min, m.angle_max, n_in)
         dst = np.linspace(m.angle_min, m.angle_max, N)
@@ -162,9 +198,9 @@ class ScanFix(Node):
             out.header.stamp = now.to_msg()
         else:
             out.header.stamp = st
-        out.angle_min = m.angle_min
-        out.angle_max = m.angle_max
-        out.angle_increment = (m.angle_max - m.angle_min) / (N - 1)
+        out.angle_min = amin
+        out.angle_max = amax
+        out.angle_increment = (amax - amin) / (N - 1)
         out.time_increment = m.time_increment
         out.scan_time = m.scan_time
         out.range_min = m.range_min
