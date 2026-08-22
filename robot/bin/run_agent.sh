@@ -70,12 +70,20 @@ while true; do
   # PARTAGEE : l'agent annoncait donc des adresses shm que les noeuds de
   # l'hote ne pouvaient pas ouvrir, d'ou le flot d'erreurs
   #   RTPS_TRANSPORT_SHM: Failed init_port fastrtps_portNNNN: open_and_lock_file
-  # Consequence observee : apres un redemarrage de l'agent, l'EKF ne se
-  # reappariait plus a /odom -- il restait vivant mais ne publiait PLUS RIEN,
-  # donc pas de TF odom->base_link, donc le SLAM jetait tous les scans
-  # ("queue is full"), donc aucune carte, donc nav2 refusait de demarrer.
-  # Toute la chaine tombait a cause de cette seule option manquante.
-  else docker run --rm --name mowbot_agent -v /dev:/dev --privileged \
+  # NE PAS lui attribuer plus que son role : on a d'abord cru que l'absence de
+  # cette option expliquait un EKF vivant mais muet. C'etait FAUX -- l'agent
+  # fonctionnait sans elle. Le message open_and_lock_file est du bruit normal de
+  # Fast DDS quand un port est deja verrouille. On garde --ipc=host parce que
+  # c'est la configuration correcte pour partager la memoire avec l'hote, pas
+  # parce qu'elle corrige une panne.
+  # `--rm` ne suffit PAS : si le conteneur est tue brutalement (kill -9, coupure
+  # d'alimentation, arret du demon docker au reboot), il reste enregistre et
+  # `docker run --name mowbot_agent` echoue en boucle sur
+  #   "Conflict. The container name /mowbot_agent is already in use"
+  # L'agent ne demarre alors JAMAIS : ni /odom ni /imu, donc pas d'EKF, donc pas
+  # de TF odom->base_link, donc plus de navigation. Constate apres un reboot.
+  else docker rm -f mowbot_agent >/dev/null 2>&1
+       docker run --rm --name mowbot_agent -v /dev:/dev --privileged \
          --net=host --ipc=host \
          microros/micro-ros-agent:"$MOWBOT_ROS_DISTRO" serial --dev "$PORT" -b "$BAUD"; fi
   mowbot_log "agent arrete, relance dans 3 s"; sleep 3
