@@ -48,6 +48,12 @@ ISO_WINDOW = 2      # rayons voisins examines de chaque cote
 ISO_TOL_M  = 0.15   # ecart de distance en deca duquel un voisin est "coherent"
 ISO_MIN_NB = 1      # nombre de voisins coherents exiges pour garder le point
 
+# Au-dela de cet ecart entre l'horodatage du driver et l'heure locale, on
+# considere le premier comme faux et on le remplace (cf. methode cb).
+# 1 s est large devant la latence normale (~2 ms) et bien en deca des 89 s
+# observes au demarrage du driver natif.
+STAMP_MAX_AGE_S = 1.0
+
 
 class ScanFix(Node):
     def __init__(self):
@@ -59,6 +65,7 @@ class ScanFix(Node):
         self.mask = None
         self.n_dropped = 0
         self.n_seen = 0
+        self.stamp_warned = False
         self.get_logger().info(
             f'/scan_raw -> /scan : {N} points, {len(SELF_SECTORS)} secteurs robot masques'
             f'{", filtre points isoles actif" if ISO_ENABLE else ""}')
@@ -127,7 +134,34 @@ class ScanFix(Node):
             out_r = self.drop_isolated(out_r, m.range_max)
 
         out = LaserScan()
-        out.header = m.header
+        out.header.frame_id = m.header.frame_id
+        # HORODATAGE : on CONSERVE celui du driver, et on ne le remplace que
+        # s'il est aberrant.
+        #
+        # Les deux erreurs a eviter, rencontrees l'une apres l'autre :
+        #  - le recopier aveuglement : au demarrage, le driver natif date ses
+        #    scans sur sa propre reference (ecart mesure : 89 s). Le
+        #    collision_monitor declarait alors la source invalide et ARRETAIT le
+        #    robot ("Robot to stop due to invalid source"), chaque but echouait.
+        #  - le remplacer systematiquement par l'heure courante : le scan
+        #    reclame alors une TF a l'instant present, or l'EKF publie
+        #    odom->base_link avec quelques millisecondes de retard. Le filtre de
+        #    slam_toolbox attend une transformation qui n'existe pas encore,
+        #    sature et jette TOUS les scans ("queue is full") -- plus aucune
+        #    carte n'etait publiee.
+        # En regime etabli le driver est juste a ~2 ms : on lui fait confiance.
+        now = self.get_clock().now()
+        st = m.header.stamp
+        age = now.nanoseconds * 1e-9 - (st.sec + st.nanosec * 1e-9)
+        if abs(age) > STAMP_MAX_AGE_S:
+            if not self.stamp_warned:
+                self.get_logger().warning(
+                    f'horodatage du driver aberrant ({age:+.1f} s) : remplace '
+                    f'par l\'heure locale')
+                self.stamp_warned = True
+            out.header.stamp = now.to_msg()
+        else:
+            out.header.stamp = st
         out.angle_min = m.angle_min
         out.angle_max = m.angle_max
         out.angle_increment = (m.angle_max - m.angle_min) / (N - 1)

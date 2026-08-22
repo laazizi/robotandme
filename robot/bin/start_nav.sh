@@ -49,50 +49,77 @@ mowbot_log "slam_toolbox : $(ros2 lifecycle get /slam_toolbox 2>/dev/null | head
 # demarrage etait la vraie cause : une temporisation fixe ne suffit pas, le
 # SLAM met un temps variable a produire sa premiere carte.
 mowbot_log "attente du repere map (le SLAM doit publier map->odom)"
-MAP_OK=0
-for i in $(seq 1 40); do
-  # tf2_echo tourne en boucle et ne rend pas la main : on le borne et on
-  # cherche sa sortie. `--once` ne fait PAS ce qu'on croit ici (il rendait
-  # toujours un code non nul), d'ou un faux negatif qui declenchait l'alerte
-  # alors que map->odom etait bien la.
-  if timeout 4 ros2 run tf2_ros tf2_echo map odom 2>/dev/null | grep -q "Translation"; then
-    MAP_OK=1; mowbot_log "map->odom disponible apres ${i}x2 s"; break
-  fi
-  # relance l'activation si le SLAM est retombe (redemarrage du service)
-  [ $((i % 10)) -eq 0 ] && slam_activate
-  sleep 2
-done
+# Test par un noeud PYTHON et non `ros2 run tf2_ros tf2_echo` : sous systemd,
+# `ros2 run` ne trouve pas ses paquets (deja constate pour les TF statiques et
+# le driver lidar). Le test echouait donc TOUJOURS, et l'on attendait 80 s pour
+# rien avant de lancer nav2 en annoncant a tort une carte absente.
+if python3 "$MOWBOT_NODES/wait_tf.py" map odom 90; then
+  MAP_OK=1
+else
+  MAP_OK=0
+  # dernier essai : le SLAM est peut-etre retombe en inactif
+  slam_activate
+  python3 "$MOWBOT_NODES/wait_tf.py" map odom 30 && MAP_OK=1
+fi
 if [ "$MAP_OK" = "0" ]; then
-  mowbot_log "ATTENTION : map->odom absente apres 80 s. nav2 va demarrer mais"
-  mowbot_log "            le planner echouera. Verifier : mowbot logs mowbot-nav"
+  mowbot_log "ATTENTION : map->odom absente. nav2 va demarrer mais le planner"
+  mowbot_log "            echouera. Verifier : mowbot logs mowbot-nav"
 fi
 
-# --- profil de VITESSE selon le robot --------------------------------------
-# Les deux chassis n'ont pas du tout la meme dynamique (1.0 m/s contre
-# 0.06 m/s). Appliquer le profil du 24 V au 12 V le faisait ramper a 5.5 cm/s.
-# On genere donc un fichier de parametres EFFECTIF, sans toucher a l'original.
+# --- PROFIL DE VITESSE, par robot -------------------------------------------
+# config/nav2_params.yaml porte les valeurs du robot B (24 V, motoreducteurs a
+# 0.055 m/s). Appliquees au robot A (12 V, capable de 1 m/s) elles le faisaient
+# ramper 18 fois trop lentement -- c'etait la cause de la "navigation lente",
+# plus lente que le joystick. On genere donc une COPIE du fichier avec les
+# limites du robot courant ; le fichier de reference n'est jamais modifie.
+#
+# Ne PAS remplacer ce mecanisme par une edition directe du YAML : les deux
+# robots partagent ce depot, et envoyer les consignes du 12 V au 24 V ferait
+# saturer son PID (asservissement qui decroche).
+ROBOT="${MOWBOT_ROBOT:-}"
+if [ -z "$ROBOT" ] && [ -f "$MOWBOT_HOME/robot_profile.env" ]; then
+  . "$MOWBOT_HOME/robot_profile.env"
+  ROBOT="${MOWBOT_ROBOT:-}"
+fi
+# Defaut B par SECURITE : des vitesses trop basses ne cassent rien, l'inverse si.
+ROBOT="$(printf '%s' "${ROBOT:-b}" | tr 'A-Z' 'a-z')"
+
 PARAMS="$MOWBOT_CONFIG/nav2_params.yaml"
-[ -f "$MOWBOT_HOME/robot_profile.env" ] && . "$MOWBOT_HOME/robot_profile.env"
-ROBOT="${MOWBOT_ROBOT:-b}"          # defaut b : des vitesses basses ne cassent rien
-if [ -f "$MOWBOT_CONFIG/speeds.env" ]; then
-  . "$MOWBOT_CONFIG/speeds.env"
-  P=$(echo "$ROBOT" | tr a-z A-Z)
-  eval "MVX=\$${P}_MAX_VEL_X;   MNX=\$${P}_MIN_VEL_X;  MSXY=\$${P}_MAX_SPEED_XY"
-  eval "MVT=\$${P}_MAX_VEL_THETA; AX=\$${P}_ACC_LIM_X; AT=\$${P}_ACC_LIM_THETA"
-  eval "DX=\$${P}_DECEL_LIM_X;  DT=\$${P}_DECEL_LIM_THETA; ST=\$${P}_SIM_TIME"
-  if [ -n "$MVX" ]; then
-    PARAMS="$MOWBOT_LOGS/nav2_params_effectif.yaml"
-    sed -e "s/^\( *min_vel_x:\).*/\1 $MNX/" \
-        -e "s/^\( *max_vel_x:\).*/\1 $MVX/" \
-        -e "s/^\( *max_speed_xy:\).*/\1 $MSXY/" \
-        -e "s/^\( *max_vel_theta:\).*/\1 $MVT/" \
-        -e "s/^\( *acc_lim_x:\).*/\1 $AX/" \
-        -e "s/^\( *acc_lim_theta:\).*/\1 $AT/" \
-        -e "s/^\( *decel_lim_x:\).*/\1 $DX/" \
-        -e "s/^\( *decel_lim_theta:\).*/\1 $DT/" \
-        -e "s/^\( *sim_time:\).*/\1 $ST/" \
-        "$MOWBOT_CONFIG/nav2_params.yaml" > "$PARAMS"
-    mowbot_log "profil robot $ROBOT : vitesse max $MVX m/s, rotation $MVT rad/s"
+SPEEDS="$MOWBOT_CONFIG/speeds.env"
+if [ -f "$SPEEDS" ]; then
+  . "$SPEEDS"
+  P="$(printf '%s' "$ROBOT" | tr 'a-z' 'A-Z')"
+  GEN="$MOWBOT_LOGS/nav2_params_$ROBOT.yaml"
+  if cp "$PARAMS" "$GEN" 2>/dev/null; then
+    # Remplace le NOMBRE apres la cle, en gardant l'indentation et le
+    # commentaire de fin de ligne (precieux : ces valeurs sont justifiees).
+    set_num() {
+      eval "v=\${${P}_$2:-}"
+      [ -n "$v" ] && sed -i -E "s|^([[:space:]]*)$1:[[:space:]]*-?[0-9.]+|\1$1: $v|" "$GEN"
+    }
+    set_num min_vel_x        MIN_VEL_X
+    set_num max_vel_x        MAX_VEL_X
+    set_num max_speed_xy     MAX_SPEED_XY
+    set_num max_vel_theta    MAX_VEL_THETA
+    set_num acc_lim_x        ACC_LIM_X
+    set_num acc_lim_theta    ACC_LIM_THETA
+    set_num decel_lim_x      DECEL_LIM_X
+    set_num decel_lim_theta  DECEL_LIM_THETA
+    set_num sim_time         SIM_TIME
+    # velocity_smoother : listes [x, y, theta]. Il BRIDE la sortie du
+    # controleur ; l'oublier annulerait tout le reste.
+    eval "vx=\${${P}_MAX_VEL_X:-}"; eval "vn=\${${P}_MIN_VEL_X:-}"
+    eval "vt=\${${P}_MAX_VEL_THETA:-}"
+    eval "ax=\${${P}_ACC_LIM_X:-}";  eval "at=\${${P}_ACC_LIM_THETA:-}"
+    eval "dx=\${${P}_DECEL_LIM_X:-}"; eval "dt=\${${P}_DECEL_LIM_THETA:-}"
+    [ -n "$vx" ] && sed -i -E "s|^([[:space:]]*)max_velocity:.*|\1max_velocity: [$vx, 0.0, $vt]|" "$GEN"
+    [ -n "$vn" ] && sed -i -E "s|^([[:space:]]*)min_velocity:.*|\1min_velocity: [$vn, 0.0, -$vt]|" "$GEN"
+    [ -n "$ax" ] && sed -i -E "s|^([[:space:]]*)max_accel:.*|\1max_accel: [$ax, 0.0, $at]|" "$GEN"
+    [ -n "$dx" ] && sed -i -E "s|^([[:space:]]*)max_decel:.*|\1max_decel: [$dx, 0.0, $dt]|" "$GEN"
+    PARAMS="$GEN"
+    mowbot_log "profil de vitesse : robot ${P} (max_vel_x=${vx:-?} m/s, max_vel_theta=${vt:-?} rad/s)"
+  else
+    mowbot_log "ATTENTION : copie de nav2_params.yaml impossible, profil non applique"
   fi
 fi
 

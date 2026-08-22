@@ -63,7 +63,20 @@ while true; do
   fi
   mowbot_log "ESP32 sur $PORT"
   if [ -x "$AGENT" ]; then "$AGENT" serial --dev "$PORT" -b "$BAUD"
-  else docker run --rm --name mowbot_agent -v /dev:/dev --privileged --net=host \
+  # --ipc=host est INDISPENSABLE, autant que --net=host.
+  #
+  # Par defaut docker donne au conteneur son PROPRE /dev/shm. Or Fast DDS
+  # (le RMW par defaut) fait passer les messages locaux par de la memoire
+  # PARTAGEE : l'agent annoncait donc des adresses shm que les noeuds de
+  # l'hote ne pouvaient pas ouvrir, d'ou le flot d'erreurs
+  #   RTPS_TRANSPORT_SHM: Failed init_port fastrtps_portNNNN: open_and_lock_file
+  # Consequence observee : apres un redemarrage de l'agent, l'EKF ne se
+  # reappariait plus a /odom -- il restait vivant mais ne publiait PLUS RIEN,
+  # donc pas de TF odom->base_link, donc le SLAM jetait tous les scans
+  # ("queue is full"), donc aucune carte, donc nav2 refusait de demarrer.
+  # Toute la chaine tombait a cause de cette seule option manquante.
+  else docker run --rm --name mowbot_agent -v /dev:/dev --privileged \
+         --net=host --ipc=host \
          microros/micro-ros-agent:"$MOWBOT_ROS_DISTRO" serial --dev "$PORT" -b "$BAUD"; fi
   mowbot_log "agent arrete, relance dans 3 s"; sleep 3
 done

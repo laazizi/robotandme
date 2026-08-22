@@ -1,0 +1,45 @@
+[Unit]
+Description=mowbot purge des segments Fast DDS residuels dans /dev/shm
+# __USER__ / __HOME__ sont remplaces par install.sh
+#
+# POURQUOI CE SERVICE.
+# Fast DDS (le RMW par defaut de ROS 2) alloue un fichier par port dans
+# /dev/shm : fastrtps_portNNNN_el et sem.fastrtps_portNNNN_mutex. Un processus
+# TUE (kill -9, plantage, arret brutal du robot) laisse son fichier derriere
+# lui, parfois VIDE. Un fichier de 0 octet ne peut plus etre verrouille : tout
+# nouveau participant qui retombe sur ce port echoue avec
+#   RTPS_TRANSPORT_SHM: Failed init_port fastrtps_portNNNN: open_and_lock_file
+# et n'est alors PLUS JOIGNABLE sur le graphe -- symptome trompeur, car le
+# processus tourne, le service est "active", mais il ne publie plus rien.
+#
+# Diagnostic vecu sur ce robot : un fastrtps_port7011_el vide empechait l'EKF
+# de recevoir /odom. Sans /odom : pas de TF odom->base_link, donc slam_toolbox
+# rejetait tous les scans ("queue is full"), donc aucune carte, donc nav2 ne
+# demarrait pas. Une seule ligne de nettoyage evite ce chateau de cartes.
+#
+# La purge n'est SANS DANGER qu'au boot, avant tout noeud ROS : supprimer un
+# segment en cours d'usage couperait les communications des noeuds vivants.
+# D'ou Before= sur tous les services mowbot, et RemainAfterExit.
+DefaultDependencies=no
+After=local-fs.target
+Requires=local-fs.target
+Before=mowbot-tf.service mowbot-agent.service mowbot-razor.service
+Before=mowbot-lidar.service mowbot-ekf.service mowbot-description.service
+Before=mowbot-rosbridge.service mowbot-web.service mowbot-nav.service
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Garde-fou : on ne purge que si AUCUN noeud ROS ne tourne. Le service est
+# normalement lance au boot, mais un `systemctl restart` manuel ne doit pas
+# pouvoir casser une pile en marche.
+# Motifs avec le 1er caractere entre crochets ([e]kf_node...) : sans cela
+# `pgrep -f` retrouve la ligne de commande de CE bash, qui contient les motifs,
+# se croit face a des noeuds vivants et annule toujours la purge. Meme piege
+# que le classique `ps | grep -v grep`.
+ExecStart=/bin/bash -c 'if pgrep -f "[e]kf_node|[s]lam_toolbox|[c]ontroller_server|[m]icro_ros_agent|[s]can_fix" >/dev/null 2>&1; then echo "des noeuds ROS tournent : purge annulee"; else n=$(ls /dev/shm 2>/dev/null | grep -c fastrtps); rm -f /dev/shm/fastrtps_* /dev/shm/sem.fastrtps_* 2>/dev/null; echo "segments Fast DDS purges : $n"; fi'
+
+[Install]
+WantedBy=multi-user.target

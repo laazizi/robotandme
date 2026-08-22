@@ -141,8 +141,10 @@ for f in "$SRC"/systemd/*.service; do
   sudo mv "/tmp/$b" "/etc/systemd/system/$b"
 done
 sudo systemctl daemon-reload
-SERVICES="mowbot-tf mowbot-agent mowbot-razor mowbot-lidar mowbot-ekf
-          mowbot-description mowbot-rosbridge mowbot-web mowbot-nav"
+# shmclean en TETE : il purge les segments Fast DDS residuels avant que le
+# moindre noeud ROS demarre (cf. l'en-tete de son unite).
+SERVICES="mowbot-shmclean mowbot-tf mowbot-agent mowbot-razor mowbot-lidar
+          mowbot-ekf mowbot-description mowbot-rosbridge mowbot-web mowbot-nav"
 if [ "$NO_ENABLE" = "0" ]; then
   sudo systemctl enable $SERVICES >/dev/null 2>&1
   echo "   actives au boot : $(echo $SERVICES | wc -w) services"
