@@ -6,7 +6,8 @@ BIN="$(dirname "$(readlink -f "$0")")"
 source "$BIN/mowbot_env.sh"
 
 case "${1:-help}" in
-  up)          bash "$BIN/robot_up.sh" ;;
+  up)          shift; bash "$BIN/robot_up.sh" "$@" ;;
+  recover|fix) bash "$BIN/robot_up.sh" --force ;;
   status|st)   bash "$BIN/robot_status.sh" ;;
   nav)         bash "$BIN/start_nav.sh" ;;
   slam)        bash "$BIN/restart_slam.sh" ;;
@@ -25,6 +26,8 @@ case "${1:-help}" in
 mowbot — commandes du robot
 
   mowbot up            tout demarrer (services + navigation) et verifier
+  mowbot recover       relancer TOUTE la pile dans l'ordre (a faire apres un reboot
+                       si des topics sont muets alors que les services sont actifs)
   mowbot status        etat complet (services, topics, carte, peripheriques)
   mowbot nav           (re)demarrer la navigation seule
   mowbot slam          relancer le SLAM seul

@@ -6,7 +6,11 @@
 
 ekf_filter_node:
   ros__parameters:
-    frequency: 50.0
+    # 30 Hz et non 50 : la Pi 4 n'y arrivait pas (flot de "Failed to meet update
+    # rate", jusqu'a 1.3 s pour un cycle de 20 ms) et la sortie tombait a 9 Hz.
+    # Inutile de tourner plus vite que les capteurs : /odom est a 10 Hz, l'IMU a
+    # 20 Hz -- au-dela l'EKF ne fait que predire dans le vide.
+    frequency: 30.0
     sensor_timeout: 0.2
     two_d_mode: true            # tondeuse : on reste dans le plan
     publish_tf: true
