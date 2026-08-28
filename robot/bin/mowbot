@@ -13,6 +13,7 @@ case "${1:-help}" in
   slam)        bash "$BIN/restart_slam.sh" ;;
   save-map)    shift; bash "$BIN/save_map.sh" "$@" ;;
   new-map)     bash "$BIN/new_map.sh" ;;
+  esp32-reset|gyro) bash "$BIN/esp32_reset.sh" ;;
   detect)      sudo bash "$BIN/detect_devices.sh" ;;
   devices)     bash "$BIN/detect_devices.sh" --dry-run ;;
   self-check)  bash "$BIN/run_node.sh" detect_self.py ;;
@@ -35,6 +36,8 @@ mowbot — commandes du robot
   mowbot new-map       archiver la carte et repartir en CARTOGRAPHIE
   mowbot save-map      sauvegarder la carte courante
 
+  mowbot esp32-reset   rebooter l'ESP32 et recalibrer le biais gyro
+                       (ROBOT IMMOBILE : sinon le robot tourne dans RViz)
   mowbot detect        identifier les USB et ecrire les regles udev (sudo)
   mowbot devices       idem, sans rien ecrire (diagnostic)
   mowbot self-check    secteurs ou le lidar se voit lui-meme
