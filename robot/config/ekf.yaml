@@ -34,7 +34,11 @@ ekf_filter_node:
     # IMU (ICM-42688) : vitesse angulaire yaw du gyro — la reference du cap
     # a court terme. Pas d'orientation (data_raw), accelerations ignorees
     # (bruyantes sur une tondeuse qui vibre).
-    imu0: /imu/data_raw
+    # /imu/data_checked et non /imu/data_raw : nodes/imu_guard.py annule le
+    # lacet quand le gyro est GELE. Sans ce filtre, une valeur figee (-24 deg/s
+    # constants, constate le 28/08/2026) est integree comme une vraie rotation
+    # et le robot pivote sans fin dans RViz.
+    imu0: /imu/data_checked
     imu0_config: [false, false, false,
                   false, false, false,
                   false, false, false,
