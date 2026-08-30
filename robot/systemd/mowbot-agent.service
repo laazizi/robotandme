@@ -10,6 +10,13 @@ User=__USER__
 Environment=HOME=__HOME__
 ExecStartPre=/bin/sleep 8
 ExecStart=/bin/bash __HOME__/mowbot/bin/run_agent.sh
+# ExecStop INDISPENSABLE : sans lui, systemd tue le client `docker run` sur
+# l'hote et le conteneur mowbot_agent SURVIT en gardant le port serie de
+# l'ESP32 ouvert. Le reset de la puce echouait alors, elle restait muette, et
+# toute la chaine tombait (pas de /odom, donc pas d'EKF, donc pas de TF
+# odom->base_link, donc nav2 bloque en `inactive`).
+# Le `-` prefixe : un echec ici ne doit pas empecher l'arret du service.
+ExecStop=-/usr/bin/docker rm -f mowbot_agent
 Restart=always
 RestartSec=3
 

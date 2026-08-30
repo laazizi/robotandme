@@ -68,17 +68,30 @@ for dev in /dev/ttyUSB* /dev/ttyACM*; do
     continue
   fi
 
-  # 2a) ESP32 dont le FIRMWARE micro-ROS tourne deja : il emet en continu des
-  #     paquets XRCE-DDS, reconnaissables a la chaine "XRCE". Teste en premier
-  #     car c'est non intrusif (aucun reset) et sans dependance a esptool.
-  stty -F "$dev" "${MOWBOT_ESP32_BAUD:-460800}" raw -echo 2>/dev/null
-  # `timeout 3 cat` peut rester bloque : cat s'immobilise dans l'ouverture du
-  # port quand l'adaptateur n'affirme pas de porteuse, et timeout ne peut alors
-  # pas l'interrompre. Constate : detect_devices bloque 10 min sur un port.
-  # `timeout -k` force la mise a mort, et dd borne la lecture sans attendre
-  # d'avoir rempli son tampon.
-  if timeout -k 2 4 dd if="$dev" bs=600 count=1 iflag=nonblock 2>/dev/null | grep -qa "XRCE"; then
-    echo "   -> ESP32 (trames micro-ROS XRCE-DDS detectees)"
+  # 2z) L'IDENTITE USB TRANCHE QUAND ELLE EST SANS AMBIGUITE, et c'est le test
+  #     le plus fiable : aucun lidar n'embarque ces puces.
+  #       1a86 = CH343/CH340 (WCH), la puce des cartes ESP32-P4 et de la
+  #              Waveshare ESP32-P4-ETH ;
+  #       303a = USB natif Espressif (S2/S3/P4 en USB-Serial-JTAG).
+  #     Les lidars LD14/LD06/N10 sont tous des CP2102 (10c4:ea60) : seul 10c4
+  #     est donc reellement ambigu et merite une sonde du flux.
+  #     Sans ce raccourci, un ESP32 en 1a86 partait a la sonde de lidar et en
+  #     revenait etiquete "n10" -- voir l'en-tete de lidar_probe.py.
+  case "$VID" in
+    1a86|303a)
+      echo "   -> ESP32 (puce $VID:$PID, jamais utilisee par un lidar)"
+      ESP32_PATH="$IDPATH"; ESP32_SER="$SER"; ESP32_VID="$VID"; ESP32_PID="$PID"; continue
+      ;;
+  esac
+
+  # 2a) ESP32 dont le FIRMWARE micro-ROS tourne deja, sur une puce ambigue
+  #     (10c4). Non intrusif : aucun reset, aucune dependance a esptool.
+  #     ON NE CHERCHE PLUS LA CHAINE "XRCE" : le protocole ne la transmet pas en
+  #     clair et ce test ne s'est JAMAIS declenche (mesure : 0 occurrence sur
+  #     600 octets d'un ESP32 fonctionnel). On delegue a lidar_probe.py, qui
+  #     reconnait le delimiteur 0x7E a pas regulier et repond "microros".
+  if [ "$(python3 "$(dirname "$(readlink -f "$0")")/lidar_probe.py" "$dev" 2>/dev/null)" = "microros" ]; then
+    echo "   -> ESP32 (trames micro-ROS detectees sur le flux)"
     ESP32_PATH="$IDPATH"; ESP32_SER="$SER"; ESP32_VID="$VID"; ESP32_PID="$PID"; continue
   fi
 
@@ -184,9 +197,42 @@ TMP=$(mktemp)
   [ -n "$IMU_PATH" ]   && emit_rule mowbot_imu   "$IMU_PATH"   "$IMU_SER"   "$IMU_VID"   "$IMU_PID"
 } > "$TMP"
 
+# --- Report des regles des peripheriques NON DETECTES cette fois-ci ----------
+# Ce fichier est ECRASE a chaque execution, et emit_rule n'ecrit que ce qui a
+# ete trouve : un peripherique simplement OCCUPE perdait donc sa regle en
+# silence. Vecu -- detect_devices lance alors que mowbot-lidar tenait encore son
+# port : la sonde n'a rien pu lire, "LIDAR : NON TROUVE", et /dev/mowbot_lidar a
+# disparu du systeme sans un mot. On conserve donc l'ancienne regle et on le dit
+# a voix haute, plutot que de supprimer un reglage qui marchait.
+# Un peripherique reellement retire garde ainsi une regle inerte (son lien
+# n'apparait pas, faute de materiel) : sans effet, et facile a nettoyer a la
+# main, alors qu'une regle perdue casse le demarrage sans laisser de trace.
+CARRY=""
+for n in mowbot_esp32 mowbot_lidar mowbot_imu; do
+  case "$n" in
+    mowbot_esp32) [ -n "$ESP32_PATH" ] && continue ;;
+    mowbot_lidar) [ -n "$LIDAR_PATH" ] && continue ;;
+    mowbot_imu)   [ -n "$IMU_PATH" ]   && continue ;;
+  esac
+  ANCIENNE=$(grep -h "SYMLINK+=\"$n\"" "$RULES" 2>/dev/null | head -1)
+  [ -n "$ANCIENNE" ] || continue
+  {
+    echo "# $n : NON DETECTE a cette execution -- ancienne regle CONSERVEE"
+    echo "$ANCIENNE"
+  } >> "$TMP"
+  CARRY="$CARRY $n"
+done
+
 echo
 echo "-- regle udev proposee --"
 cat "$TMP"
+if [ -n "$CARRY" ]; then
+  echo
+  echo "!! ATTENTION : non detecte(s) a cette execution :$CARRY"
+  echo "   L'ancienne regle est conservee pour ne rien casser. Si le"
+  echo "   peripherique est bien branche, relancer en ayant LIBERE son port :"
+  echo "     sudo systemctl stop mowbot-agent mowbot-lidar && mowbot detect"
+fi
 
 if [ "$DRY" = "1" ]; then
   echo; echo "(--dry-run : rien n'a ete ecrit)"
@@ -208,5 +254,14 @@ for l in mowbot_esp32 mowbot_lidar mowbot_imu; do
   printf "   /dev/%-14s -> %s\n" "$l" "$(readlink /dev/$l 2>/dev/null || echo ABSENT)"
 done
 
-for s in $STOPPED; do systemctl start "$s"; done
+# On ne RESSUSCITE pas un service desactive. `systemctl disable` exprime une
+# intention : mowbot-razor a ete desactive parce que l'IMU Razor USB n'existe
+# pas sur ce robot, et le relancer ici le remettait a tourner en boucle sur son
+# Restart=always alors que personne ne l'avait demande.
+for s in $STOPPED; do
+  case "$(systemctl is-enabled "$s" 2>/dev/null)" in
+    disabled|masked) echo "   $s desactive : non relance" ;;
+    *)               systemctl start "$s" ;;
+  esac
+done
 [ -n "$STOPPED" ] && echo && echo ">> services redemarres :$STOPPED"
