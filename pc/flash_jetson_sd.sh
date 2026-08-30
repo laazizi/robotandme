@@ -185,6 +185,50 @@ sleep 3
 fi   # fin du bloc gravure, saute par --configure-only
 
 # ---------------------------------------------------------------------------
+#  AGRANDIR LA PARTITION RACINE
+# ---------------------------------------------------------------------------
+# L'image L4T fait 16.1 Go dont 15 DEJA OCCUPES : au premier demarrage la racine
+# est pleine a 100 %, avec zero octet libre. Constate, et les consequences ne
+# sautent pas aux yeux :
+#   - `ssh-keygen` ne peut pas ecrire ses cles, donc sshd ne demarre jamais ;
+#   - bash lui-meme echoue : "cannot create temp file for here-document" ;
+#   - et rien de tout cela n'apparait dans un ping ni dans le mDNS, qui
+#     repondent parfaitement -- la machine a l'air saine.
+# Cette version de L4T n'a PAS de nvresizefs.service : l'agrandissement
+# automatique au premier demarrage n'existe pas. On le fait donc ici, hors
+# ligne, ou c'est plus simple et plus sur qu'a chaud.
+if [ "$CONFONLY" = "0" ] && [ "$DRY" != "1" ]; then
+  msg "agrandissement de la partition racine a toute la carte"
+  # p1 doit etre la DERNIERE partition du disque, sinon on ecraserait la
+  # suivante. Sur cette image c'est le cas (elle commence au secteur 1484800,
+  # apres les 21 partitions de firmware), mais on le VERIFIE.
+  P1_START=$(cat "/sys/block/$(basename "$DEV")/$(basename "$DEV")p1/start" 2>/dev/null)
+  DERNIERE=1
+  for d in /sys/block/$(basename "$DEV")/$(basename "$DEV")p*; do
+    st=$(cat "$d/start" 2>/dev/null) || continue
+    [ -n "$st" ] && [ "$st" -gt "${P1_START:-0}" ] && DERNIERE=0
+  done
+  if [ "$DERNIERE" = "0" ]; then
+    echo "   p1 n'est pas la derniere partition : agrandissement ANNULE"
+    echo "   (la racine restera a 16 Go, presque pleine)"
+  else
+    echo ',+' | sudo sfdisk --force -N 1 "$DEV" 2>&1 | grep -viE "^$|^Disk |^Device |^Old situation|^New situation" | tail -4 | sed 's/^/   /'
+    sudo partx -u "$DEV" 2>/dev/null || sudo partprobe "$DEV" 2>/dev/null || true
+    sleep 2
+    APP_TMP="${DEV}p1"
+    [ -b "$APP_TMP" ] || APP_TMP="${DEV}1"
+    # e2fsck avant resize2fs : ce dernier refuse d'agrandir un systeme de
+    # fichiers qu'il n'a pas verifie.
+    sudo e2fsck -fp "$APP_TMP" >/dev/null 2>&1 || true
+    sudo resize2fs "$APP_TMP" 2>&1 | tail -2 | sed 's/^/   /'
+    python3 -c "
+import subprocess
+o = subprocess.run(['lsblk','-bdno','SIZE','$APP_TMP'],capture_output=True,text=True).stdout.strip()
+print(f'   racine portee a {int(o)/1024**3:.1f} Go') if o.isdigit() else None"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 #  PRECONFIGURATION HORS LIGNE
 # ---------------------------------------------------------------------------
 # La partition racine de l'image L4T est APP : la plus grande, en ext4.
