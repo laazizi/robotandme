@@ -28,6 +28,13 @@ docker rm -f "$NOM" >/dev/null 2>&1
 
 mowbot_log "demarrage du conteneur $NOM ($IMAGE)"
 exec docker run --rm --name "$NOM" \
+  `# --init place tini en PID 1 a la place de la commande du conteneur.` \
+  `# INDISPENSABLE : la commande est \`sleep infinity\`, qui n'est pas un init et` \
+  `# ne reclame JAMAIS ses enfants. Chaque service arrete laissait donc derriere` \
+  `# lui ses processus en <defunct> ; on en a compte 14 accumules, et ils` \
+  `# faussaient tout comptage de processus (un groupe paraissait vivant alors` \
+  `# qu'il ne restait que des zombies). tini les moissonne au fur et a mesure.` \
+  --init \
   --net=host \
   `# --ipc=host est aussi indispensable que --net=host : sans lui le conteneur` \
   `# a son PROPRE /dev/shm, et Fast DDS ne partage plus la memoire avec les` \

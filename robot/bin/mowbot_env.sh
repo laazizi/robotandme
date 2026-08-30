@@ -41,8 +41,20 @@ fi
 # donc un `$` au lieu d'un numero, et rien n'etait jamais tue. Quatre niveaux
 # d'echappement imbriques : autant les eviter.
 # `exec` plus loin dans les scripts CONSERVE le PID, la valeur reste donc juste.
+# ON RETIRE ENSUITE LA VARIABLE DE L'ENVIRONNEMENT. Sans cela, tout script
+# enfant qui re-source ce fichier ECRASE le pidfile avec son propre PID, et
+# l'arret du service ne tue plus le bon processus. Cas reellement vecu :
+# start_nav.sh lance `bash run_slam.sh &`, run_slam.sh re-source ce fichier et
+# posait son PID dans mowbot-nav.pid. ct_stop.sh tuait donc le SLAM en laissant
+# start_nav.sh et nav2 intacts -- a chaque relance une pile nav2 complete
+# s'ajoutait a la precedente. On a mesure TROIS generations vivantes en
+# parallele, dont deux route_server et deux opennav_docking qui consommaient du
+# CPU pour rien, et `ros2 node list` montrait les noeuds en double.
+# `unset` (et non une variable locale) : c'est bien de l'environnement EXPORTE
+# qu'il faut la retirer, puisque le probleme est l'heritage par les enfants.
 if [ -n "$MOWBOT_PIDFILE" ]; then
   echo $$ > "$MOWBOT_PIDFILE" 2>/dev/null || true
+  unset MOWBOT_PIDFILE
 fi
 
 # --- PATH : ~/.local/bin ---------------------------------------------------
@@ -80,7 +92,18 @@ if [ -z "$MOWBOT_ROS_DISTRO" ]; then
   export MOWBOT_NO_ROS=1
 else
   export MOWBOT_ROS_DISTRO
-  source "/opt/ros/$MOWBOT_ROS_DISTRO/setup.bash"
+  # LE FICHIER PEUT NE PAS EXISTER, et il faut le verifier. En mode conteneur,
+  # ROS n'est installe QUE dans le conteneur, alors que MOWBOT_ROS_DISTRO peut
+  # tres bien etre deja pose dans l'environnement (herite d'un service, du
+  # .bashrc, ou d'une commande precedente). On tombait donc dans cette branche
+  # sur l'HOTE, et chaque commande mowbot lancee depuis l'hote commencait par :
+  #   /opt/ros/jazzy/setup.bash: No such file or directory
+  # Bruit pur : la commande fonctionnait ensuite, via le relais bin/ros2.
+  if [ -f "/opt/ros/$MOWBOT_ROS_DISTRO/setup.bash" ]; then
+    source "/opt/ros/$MOWBOT_ROS_DISTRO/setup.bash"
+  else
+    export MOWBOT_NO_ROS=1
+  fi
 fi
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 
