@@ -1,0 +1,25 @@
+# Services que install.sh NE DOIT PAS activer au demarrage, un par ligne.
+#
+# POURQUOI CE FICHIER EXISTE. install.sh fait `systemctl enable` sur toute sa
+# liste a chaque deploiement. Un `systemctl disable` fait a la main ne tenait
+# donc pas : au deploiement suivant le service revenait, et avec son
+# Restart=always il repartait en boucle. Vecu avec mowbot-razor.
+# On ne peut PAS se contenter d'ignorer les services deja `disabled` : une unite
+# fraichement installee et jamais activee se declare elle aussi `disabled`, et
+# plus rien ne serait active sur un SBC neuf. Il faut donc une intention
+# EXPLICITE, et c'est ce fichier.
+#
+# CE FICHIER EST VERSIONNE : ce qu'on y met s'applique a TOUS LES ROBOTS, et il
+# est ECRASE par les sources a chaque deploiement. Pour ecarter un service sur
+# UNE SEULE machine, creer a cote :
+#     config/services_off.local
+# meme format, jamais copie ni ecrase par install.sh puisqu'il n'existe pas dans
+# les sources.
+# Les lignes vides et celles commencant par # sont ignorees.
+
+# mowbot-razor : IMU Razor AHRS sur USB. Ne concerne QUE le robot qui en a une.
+#   Sur le robot a ESP32-P4 l'IMU est en I2C, lue par le firmware et publiee via
+#   micro-ROS : le service ne trouve jamais /dev/mowbot_imu et se relance sans
+#   fin. NE PAS l'ecarter ici -- l'autre robot a une vraie IMU Razor USB et en
+#   a besoin. Mettre "mowbot-razor" dans services_off.local sur le robot
+#   concerne, et lui seul.

@@ -20,6 +20,21 @@ done
 # donc nav2 ne demarre pas.
 ORDER="mowbot-tf mowbot-description mowbot-agent mowbot-razor mowbot-lidar mowbot-ekf"
 
+# ON RESPECTE `systemctl disable`. Sans ce filtre, cette liste RESSUSCITE un
+# service volontairement desactive : mowbot-razor a ete desactive parce que
+# l'IMU Razor USB n'existe pas sur ce robot (l'IMU est en I2C sur l'ESP32), et
+# `mowbot up` le relancait quand meme -- 14 relances en boucle sur son
+# Restart=always, et un journal noye. Un service `static` ou sans etat connu
+# reste demarre : seuls `disabled` et `masked` sont ecartes.
+GARDES=""
+for s in $ORDER; do
+  case "$(systemctl is-enabled "$s" 2>/dev/null)" in
+    disabled|masked) echo "   $s desactive, ignore" ;;
+    *)               GARDES="$GARDES $s" ;;
+  esac
+done
+ORDER="${GARDES# }"
+
 # Relance ordonnee de toute la pile.
 #
 # POURQUOI CETTE COMMANDE EXISTE : apres un DEMARRAGE DE LA MACHINE, les

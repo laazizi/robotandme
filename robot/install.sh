@@ -66,9 +66,19 @@ fi
 
 # --- 2. copie des fichiers --------------------------------------------------
 echo ">> copie vers $DEST"
-mkdir -p "$DEST"/{bin,nodes,config,www,maps}
+mkdir -p "$DEST"/{bin,nodes,config,launch,www,maps}
 cp -r "$SRC/bin/." "$DEST/bin/"
 cp -r "$SRC/nodes/." "$DEST/nodes/"
+# launch/ : notre copie de navigation_launch.py, sans route_server ni
+# docking_server. On refuse de deployer un fichier de lancement qui ne compile
+# pas -- sinon start_nav.sh basculerait sur le repli nav2_bringup en silence, et
+# l'on croirait avoir gagne les 36 % de coeur sans les avoir gagnes.
+for f in "$SRC"/launch/*.launch.py; do
+  [ -f "$f" ] || continue
+  python3 -m py_compile "$f" 2>/dev/null || {
+    echo "   ERREUR : $(basename "$f") ne compile pas, deploiement annule" >&2; exit 1; }
+done
+cp -r "$SRC/launch/." "$DEST/launch/" 2>/dev/null || true
 cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
 # configs : ne pas ecraser un reglage local existant (sauvegarde si different).
 # __HOME__ / __USER__ sont substitues : les YAML n'acceptent pas de variable
@@ -79,10 +89,15 @@ cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
 # "paquet::Classe". Avec la mauvaise syntaxe le planner_server refuse de
 # demarrer ("does not exist") et le lifecycle_manager abandonne TOUT nav2 :
 # les buts sont alors acceptes mais rien ne bouge. On adapte a la distro.
+# Le fichier source porte la syntaxe JAZZY ("paquet::Classe"). Humble n'accepte
+# que "paquet/Classe" : on convertit donc VERS Humble, et non l'inverse. Le sens
+# a ete inverse apres qu'une copie directe dans config/, contournant ce script,
+# ait reintroduit l'ancienne syntaxe -- planner_server refusait alors de se
+# configurer et le lifecycle_manager abandonnait toute la pile nav2.
 PLUGIN_SED=""
-if [ "$ROS_D" != "humble" ]; then
-  PLUGIN_SED="-e s|nav2_navfn_planner/|nav2_navfn_planner::|g
-              -e s|nav2_behaviors/|nav2_behaviors::|g"
+if [ "$ROS_D" = "humble" ]; then
+  PLUGIN_SED="-e s|nav2_navfn_planner::|nav2_navfn_planner/|g
+              -e s|nav2_behaviors::|nav2_behaviors/|g"
 fi
 
 for f in "$SRC"/config/*; do
@@ -93,6 +108,29 @@ for f in "$SRC"/config/*; do
     cp "$DEST/config/$b" "$DEST/config/$b.local.$(date +%Y%m%d_%H%M%S)"
     echo "   (ancien $b sauvegarde en .local.*)"
   fi
+  # VALIDATION AVANT DEPLOIEMENT. J'ai casse deux fois l'URDF (double tiret
+  # dans un commentaire XML) et une fois nav2_params.yaml (indentation) en les
+  # editant par script. Chaque fois le service concerne a demarre puis echoue,
+  # et le diagnostic a coute du temps : nav2 ne demarrait plus du tout et les
+  # compteurs d'erreur affichaient zero, ce qui donnait l'illusion que le
+  # probleme etait resolu. Un fichier invalide ne doit plus pouvoir arriver
+  # jusqu'au robot.
+  case "$b" in
+    *.yaml|*.yml)
+      if ! python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "/tmp/mowbot_cfg_$b" 2>/dev/null; then
+        echo "   ERREUR : $b n'est pas un YAML valide, DEPLOIEMENT ANNULE" >&2
+        python3 -c "import sys,yaml; yaml.safe_load(open(sys.argv[1]))" "/tmp/mowbot_cfg_$b" 2>&1 | tail -3 >&2
+        rm -f "/tmp/mowbot_cfg_$b"
+        continue
+      fi ;;
+    *.urdf|*.xacro)
+      if ! python3 -c "import sys,xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "/tmp/mowbot_cfg_$b" 2>/dev/null; then
+        echo "   ERREUR : $b n'est pas un XML valide, DEPLOIEMENT ANNULE" >&2
+        python3 -c "import sys,xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "/tmp/mowbot_cfg_$b" 2>&1 | tail -3 >&2
+        rm -f "/tmp/mowbot_cfg_$b"
+        continue
+      fi ;;
+  esac
   mv "/tmp/mowbot_cfg_$b" "$DEST/config/$b"
 done
 chmod +x "$DEST"/bin/*.sh "$DEST"/bin/mowbot 2>/dev/null || true
@@ -159,10 +197,60 @@ PYV
 fi
 
 # --- 4. services systemd ----------------------------------------------------
+# DEUX fichiers, et la distinction est importante :
+#   config/services_off        versionne, donc VALABLE POUR TOUS LES ROBOTS.
+#                              N'y mettre qu'un service inutile partout.
+#   config/services_off.local  propre a CETTE machine. install.sh ne copie que
+#                              les fichiers presents dans les sources : ce
+#                              fichier n'y etant pas, il n'est jamais ecrase.
+# C'est le seul endroit correct pour une exclusion liee au MATERIEL d'un robot.
+# Exemple vecu : mowbot-razor doit etre ecarte sur le robot a ESP32-P4 (IMU en
+# I2C) mais surtout PAS sur celui qui porte une vraie IMU Razor USB. Le mettre
+# dans le fichier versionne aurait casse l'autre robot.
+# NB : les fichiers de config SONT ecrases par les sources (une copie de
+# l'ancien est gardee en .local.<date>), malgre ce que laisse entendre le
+# commentaire de l'etape 2. Ne pas compter sur une edition locale pour survivre.
+OFF_FILE="$DEST/config/services_off"
+OFF_LOCAL="$DEST/config/services_off.local"
+# ATTENTION AUX NOMS DE VARIABLES. Une premiere version bouclait sur `f`, qui
+# est la VARIABLE DE BOUCLE des fichiers d'unites juste en dessous : les
+# fonctions shell partagent la portee globale, donc le premier appel ecrasait
+# $f, et chaque unite systemd a ete remplacee par une copie de
+# services_off.local. Resultat : les onze services refusaient de demarrer avec
+# "bad unit file setting" et le robot etait entierement a l'arret. D'ou `local`
+# et des noms prefixes.
+est_ecarte() {
+  local _svc="$1" _ff
+  for _ff in "$OFF_FILE" "$OFF_LOCAL"; do
+    [ -f "$_ff" ] || continue
+    grep -qE "^[[:space:]]*$_svc[[:space:]]*$" "$_ff" && return 0
+  done
+  return 1
+}
 echo ">> services systemd"
 CTNAME="${MOWBOT_CONTAINER:-mowbot_jazzy}"
 for f in "$SRC"/systemd/*.service; do
   b="$(basename "$f")"
+  # ON N'INSTALLE PAS L'UNITE D'UN SERVICE ECARTE, et on retire celle qui
+  # traine. C'est la seule facon de le rendre reellement indemarrable :
+  # `systemctl mask` REFUSE de masquer une unite qui est un fichier reel dans
+  # /etc/systemd/system (il ne peut pas la remplacer par un lien vers
+  # /dev/null), et il echoue SANS message. Constate : mowbot-razor restait
+  # `disabled` mais demarrable, donc relance par une dependance ou a la main,
+  # et son Restart=always le faisait boucler indefiniment.
+  # Sans fichier d'unite, `systemctl start` repond "Unit not found" : net.
+  if est_ecarte "${b%.service}"; then
+    if [ -f "/etc/systemd/system/$b" ]; then
+      sudo systemctl stop "$b" >/dev/null 2>&1
+      sudo systemctl disable "$b" >/dev/null 2>&1
+      sudo rm -f "/etc/systemd/system/$b"
+      sudo systemctl reset-failed "$b" >/dev/null 2>&1
+      echo "   $b ECARTE (services_off) : unite retiree"
+    else
+      echo "   $b ecarte (services_off) : unite non installee"
+    fi
+    continue
+  fi
   sed -e "s|__USER__|$USER_NAME|g" -e "s|__HOME__|$HOME|g" "$f" > "/tmp/$b"
 
   # MODE CONTENEUR : les noeuds ROS doivent tourner DANS le conteneur, mais
@@ -214,10 +302,16 @@ for f in "$SRC"/systemd/*.service; do
       # blanc : "Unknown key name 'ExecStop' in section 'Install', ignoring".
       # Aucun caractere special ici : systemd ne fait pas de substitution de
       # commande, et un `$` litteral exigerait `$$`. Toute la logique d'arret
-      # est dans bin/ct_stop.sh, appele avec deux arguments.
-      PRE="ExecStartPre=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF"
-      RUN="ExecStart=/usr/bin/docker exec -e MOWBOT_PIDFILE=$PIDF $CTNAME /bin/bash $SCRIPT"
-      STOP="ExecStop=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF"
+      # est dans bin/ct_stop.sh, appele avec trois arguments.
+      # MOWBOT_UNIT est LA MARQUE qui permet de retrouver tous les processus du
+      # service dans le conteneur. L'environnement survit a `exec`, donc chaque
+      # noeud ROS la porte encore apres que le script se soit fait remplacer.
+      # C'est ce qui rend l'arret fiable : voir l'en-tete de bin/ct_stop.sh, et
+      # les deux mecanismes qui ont echoue avant (pkill -f, puis pidfile seul).
+      # Aucun caractere special : le nom d'unite est un simple identifiant.
+      PRE="ExecStartPre=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF $b"
+      RUN="ExecStart=/usr/bin/docker exec -e MOWBOT_PIDFILE=$PIDF -e MOWBOT_UNIT=$b $CTNAME /bin/bash $SCRIPT"
+      STOP="ExecStop=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF $b"
       python3 - "/tmp/$b" "$PRE" "$RUN" "$STOP" <<'PYEOF'
 import sys
 f, pre, run, stop = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -231,18 +325,58 @@ open(f, 'w').writelines(out)
 PYEOF
     fi
   fi
+  # ON REFUSE D'INSTALLER UNE UNITE INVALIDE. Ce controle existe parce qu'un
+  # bug de ce script a un jour remplace les ONZE unites par une copie d'un
+  # fichier de configuration : une fonction utilisait `for f in ...` alors que
+  # `f` etait deja la variable de boucle des unites, et l'ecrasait. systemd
+  # repondait "bad unit file setting" pour tous les services, le robot etait
+  # entierement a l'arret, et rien dans la sortie de ce script ne le signalait.
+  # Deux verifications, volontairement basiques et sans dependance : une unite
+  # de service DOIT avoir une section [Service] et une ligne ExecStart.
+  if ! grep -q "^\[Service\]" "/tmp/$b" || ! grep -q "^ExecStart=" "/tmp/$b"; then
+    echo "   ERREUR : $b genere sans [Service] ou sans ExecStart, NON installe" >&2
+    echo "            (l'unite en place est conservee telle quelle)" >&2
+    rm -f "/tmp/$b"
+    ECHEC_UNITE=1
+    continue
+  fi
   sudo mv "/tmp/$b" "/etc/systemd/system/$b"
 done
 sudo systemctl daemon-reload
+if [ "${ECHEC_UNITE:-0}" = "1" ]; then
+  echo
+  echo "!! AU MOINS UNE UNITE N'A PAS ETE INSTALLEE (voir les erreurs ci-dessus)."
+  echo "   Les anciennes unites restent en place : le robot continue de tourner."
+  echo "   Corriger install.sh avant de redeployer."
+fi
 # shmclean en TETE : il purge les segments Fast DDS residuels avant que le
 # moindre noeud ROS demarre (cf. l'en-tete de son unite).
 SERVICES="mowbot-shmclean mowbot-tf mowbot-agent mowbot-razor mowbot-lidar
           mowbot-ekf mowbot-description mowbot-rosbridge mowbot-web mowbot-nav"
 # Le conteneur en PREMIER : tous les autres en dependent.
 [ "$CONTAINER" = "1" ] && SERVICES="mowbot-container $SERVICES"
+# Exclusions explicites : voir config/services_off pour la raison d'etre de ce
+# fichier. On ACTIVE tout le reste -- un SBC neuf doit demarrer seul.
+# Calcule ICI et non plus haut : $SERVICES n'est defini qu'a cette ligne. Une
+# version precedente faisait la boucle avant, sur une liste VIDE -- resultat
+# "actives au boot : 0 services" et plus rien d'active au demarrage.
+A_ACTIVER=""; ECARTES=""
+for s in $SERVICES; do
+  if est_ecarte "$s"; then ECARTES="$ECARTES $s"
+  else A_ACTIVER="$A_ACTIVER $s"; fi
+done
+
 if [ "$NO_ENABLE" = "0" ]; then
-  sudo systemctl enable $SERVICES >/dev/null 2>&1
-  echo "   actives au boot : $(echo $SERVICES | wc -w) services"
+  sudo systemctl enable $A_ACTIVER >/dev/null 2>&1
+  echo "   actives au boot : $(echo $A_ACTIVER | wc -w) services"
+  if [ -n "$ECARTES" ]; then
+    # `disable --now` et non un simple disable : sans --now le service deja
+    # lance continue de tourner, et l'exclusion resterait sans effet visible
+    # jusqu'au prochain redemarrage de la machine.
+    # Rien a desactiver ici : l'unite d'un service ecarte n'est meme pas
+    # installee (voir l'etape des unites, plus haut). On ne fait que le dire.
+    echo "   ecartes (services_off) :$ECARTES"
+  fi
 else
   echo "   installes (non actives : --no-enable)"
 fi
