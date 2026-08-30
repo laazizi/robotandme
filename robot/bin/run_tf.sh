@@ -11,7 +11,17 @@ source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
 # sont places trop loin (ou trop pres) et le recalage du SLAM travaille contre
 # des donnees fausses, sans qu'aucune erreur ne soit signalee.
 # Surchargeable sans toucher au script : MOWBOT_LIDAR_X=0.10
-LIDAR_X="${MOWBOT_LIDAR_X:--0.10}"
+# -0.16 : MESURE AU METRE entre l'axe des roues et le centre du lidar, sur le
+# robot A. La valeur precedente (-0.10) etait une estimation, et l'erreur de
+# 6 cm se voyait : un mur touche par l'avant du chassis etait rapporte a 28.7 cm
+# du centre du robot alors que le plateau n'a que 22 cm de rayon.
+# Recoupement independant : en resolvant l'ecart a partir du scan seul, on
+# obtenait -0.167. Les deux methodes concordent a 7 mm.
+# L'AUTRE ROBOT du projet a son lidar DEVANT (+0.10) : ne pas transposer.
+# Toute modification ici doit etre reportee dans config/mowbot.urdf
+# (joint deck_to_lidar), sinon le modele dessine le lidar a un endroit et les
+# scans sortent d'un autre.
+LIDAR_X="${MOWBOT_LIDAR_X:--0.16}"
 LIDAR_Z="${MOWBOT_LIDAR_Z:-0.28}"
 # yaw : un lidar 360 deg n'a pas de champ oriente, mais son ANGLE ZERO doit
 # regarder vers l'avant du robot. Boitier tourne = carte PIVOTEE d'autant, donc

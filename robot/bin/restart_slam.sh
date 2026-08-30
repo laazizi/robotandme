@@ -19,7 +19,7 @@ sleep 40
 grep -m1 "SLAM en" "$MOWBOT_LOGS/slam.log" 2>/dev/null
 printf "  scans rejetes : %s\n" \
   "$(grep -ci 'queue is full\|expected' "$MOWBOT_LOGS/slam.log" 2>/dev/null)"
-if python3 "$MOWBOT_NODES/wait_tf.py" map odom 40; then
+if mowbot_py wait_tf.py map odom 40; then
   printf "  /map : %s Hz\n" "$(mowbot_hz /map)"
 else
   echo ">> pas de TF map->odom. Diagnostic :  mowbot logs nav"

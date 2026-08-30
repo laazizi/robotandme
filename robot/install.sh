@@ -183,10 +183,53 @@ for f in "$SRC"/systemd/*.service; do
     *) HOTE=0;;
   esac
   if [ "$CONTAINER" = "1" ] && [ "$HOTE" = "0" ]; then
-    sed -i "s|^ExecStart=/bin/bash |ExecStart=/usr/bin/docker exec $CTNAME /bin/bash |" "/tmp/$b"
-    # Sans cette dependance, un service peut demarrer avant le conteneur et
-    # echouer sur "No such container" -- puis boucler.
-    sed -i "s|^\[Service\]|Requires=mowbot-container.service\nAfter=mowbot-container.service\n\n[Service]|" "/tmp/$b"
+    SCRIPT=$(grep -m1 "^ExecStart=/bin/bash " "/tmp/$b" | sed 's|^ExecStart=/bin/bash ||')
+    PIDF="/tmp/mowbot/${b%.service}.pid"
+
+    # ARRET DES PROCESSUS DANS LE CONTENEUR, par fichier de PID.
+    #
+    # Deux pieges se cumulent ici :
+    #  1) quand systemd arrete une unite en `docker exec`, il tue le CLIENT sur
+    #     l'hote ; le processus DANS le conteneur continue de tourner. Chaque
+    #     `systemctl restart` empilait donc une instance de plus. Constate : deux
+    #     slam_toolbox publiant tous deux la TF map->odom, trois planner_server,
+    #     charge 54 sur 4 coeurs. Le laser paraissait incoherent alors que le
+    #     lidar allait parfaitement bien.
+    #  2) une premiere correction tuait le script par son chemin
+    #     (pkill -f "^/bin/bash .../run_xxx.sh"). Ca ne marche QUE pour
+    #     start_nav.sh : tous les autres run_*.sh finissent par `exec`, donc le
+    #     bash est REMPLACE et le motif ne correspond plus a rien. L'ancien
+    #     robot_state_publisher a ainsi survecu et continuait de publier un
+    #     modele perime.
+    #
+    # D'ou le fichier de PID : le shell ecrit son propre PID AVANT de faire
+    # `exec`, et `exec` conserve le PID. On sait donc toujours qui tuer, quelle
+    # que soit la facon dont le script se termine. /tmp/mowbot est monte dans le
+    # conteneur, le fichier est donc visible des deux cotes.
+    if [ -n "$SCRIPT" ]; then
+      # REMPLACEMENT SUR PLACE de la ligne ExecStart, et non ajout en fin de
+      # fichier : la fin d'une unite est la section [Install], ou systemd
+      # IGNORE les cles Exec*. Une version precedente y ajoutait ExecStop, qui
+      # n'a donc jamais rien fait -- systemd-analyze verify le dit noir sur
+      # blanc : "Unknown key name 'ExecStop' in section 'Install', ignoring".
+      # Aucun caractere special ici : systemd ne fait pas de substitution de
+      # commande, et un `$` litteral exigerait `$$`. Toute la logique d'arret
+      # est dans bin/ct_stop.sh, appele avec deux arguments.
+      PRE="ExecStartPre=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF"
+      RUN="ExecStart=/usr/bin/docker exec -e MOWBOT_PIDFILE=$PIDF $CTNAME /bin/bash $SCRIPT"
+      STOP="ExecStop=-$HOME/mowbot/bin/ct_stop.sh $CTNAME $PIDF"
+      python3 - "/tmp/$b" "$PRE" "$RUN" "$STOP" <<'PYEOF'
+import sys
+f, pre, run, stop = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+out = []
+for l in open(f):
+    if l.startswith('ExecStart=/bin/bash '):
+        out += [pre + '\n', run + '\n', stop + '\n']
+    else:
+        out.append(l)
+open(f, 'w').writelines(out)
+PYEOF
+    fi
   fi
   sudo mv "/tmp/$b" "/etc/systemd/system/$b"
 done

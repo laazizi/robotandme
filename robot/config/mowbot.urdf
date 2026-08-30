@@ -4,8 +4,9 @@
      - 2 roues motrices Ø15 cm, pneus BLANCS + jantes noires
      - roulette folle a l'arriere
      - 4 montants en bois soutenant un plateau ALU en etage (~27 cm)
-     - LIDAR LSLidar N10 (noir) sur le plateau alu, 10 cm devant le centre,
-       28 cm de haut -> correspond a la TF base_link->laser_link
+     - LIDAR (noir) sur le plateau alu, 10 cm en ARRIERE du centre, 28 cm de
+       haut (16 cm mesures au metre). DOIT correspondre a MOWBOT_LIDAR_X de
+       bin/run_tf.sh : l'autre robot du projet l'a a +0.10, celui-ci a -0.16.
      - batterie bleue + electronique (MDD10A, DevKitC) sur la base
      base_link : centre du robot, a hauteur d'axe des roues. x = AVANT
      (cote lidar, apres inversion logicielle du sens de marche). -->
@@ -53,7 +54,10 @@
   </link>
   <joint name="base_to_wheel_left" type="fixed">
     <parent link="base_link"/><child link="wheel_left"/>
-    <origin xyz="0 0.24 0" rpy="0 0 0"/>
+    <!-- 0.23035 = demi entraxe CALIBRE au sol (0.4607 m), confirme par trois
+         methodes independantes. Le modele portait 0.24, soit 0.48 m, valeur
+         d'avant calibration. -->
+    <origin xyz="0 0.23035 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_left">
     <visual>
@@ -75,7 +79,7 @@
   </link>
   <joint name="base_to_wheel_right" type="fixed">
     <parent link="base_link"/><child link="wheel_right"/>
-    <origin xyz="0 -0.24 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.23035 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_right">
     <visual>
@@ -136,7 +140,18 @@
   </link>
   <joint name="deck_to_lidar" type="fixed">
     <parent link="base_link"/><child link="lidar_body"/>
-    <origin xyz="0.10 0 0.288"/>
+    <!-- x = -0.10 : le lidar de CE robot est 10 cm en ARRIERE du centre.
+         CETTE VALEUR DOIT SUIVRE MOWBOT_LIDAR_X de bin/run_tf.sh, qui publie
+         la TF base_link vers laser_link. Elles avaient diverge : le modele
+         dessinait le lidar a +0.10 (comme sur l'autre robot) pendant que la TF
+         publiait -0.10. La valeur exacte, MESUREE AU METRE entre l'axe des
+         roues et le centre du lidar, est 0.16 m. Vingt centimetres d'ecart, de part et d'autre du centre
+         du plateau : le corps du lidar apparaissait donc a l'OPPOSE du point
+         d'ou sortaient les scans. Ca donne l'impression d'un lidar mal oriente
+         alors que les TF sont justes.
+         Le modele n'a AUCUN effet sur la navigation, il ne sert qu'a
+         l'affichage. Mais un dessin faux fait chercher des pannes inexistantes. -->
+    <origin xyz="-0.16 0 0.288"/>
   </joint>
 
   <!-- ===== Batterie bleue sur la base ===== -->

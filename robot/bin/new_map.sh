@@ -33,7 +33,7 @@ sudo systemctl restart mowbot-nav || {
 # Le service temporise avant de lancer le SLAM, puis nav2 monte derriere.
 sleep 40
 grep -m1 "SLAM en" "$MOWBOT_LOGS/slam.log" 2>/dev/null
-if python3 "$MOWBOT_NODES/wait_tf.py" map odom 40; then
+if mowbot_py wait_tf.py map odom 40; then
   printf "  /map : %s Hz\n" "$(mowbot_hz /map)"
   echo ">> carte vierge. Roule dans le lieu, puis :  mowbot save-map"
 else

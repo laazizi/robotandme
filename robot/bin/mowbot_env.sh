@@ -28,6 +28,23 @@ if [ ! -w "$MOWBOT_LOGS" ]; then
   mkdir -p "$MOWBOT_LOGS" 2>/dev/null
 fi
 
+# --- Fichier de PID, pour que systemd puisse nous arreter -------------------
+# En mode conteneur, systemd ne voit que le client `docker exec` : le processus
+# reel, DANS le conteneur, lui echappe. Chaque `systemctl restart` empilait donc
+# une instance de plus (deux slam_toolbox publiant la meme TF, trois
+# planner_server, charge 54 sur 4 coeurs).
+#
+# On ecrit donc notre PID ici, et l'unite s'en sert pour nous envoyer un TERM.
+# POURQUOI C'EST LE SCRIPT QUI L'ECRIT, et non l'unite : une premiere version
+# faisait `echo $$` depuis la ligne ExecStart, mais systemd interprete `$$`
+# comme un `$` litteral -- il aurait fallu ecrire `$$$$`. Le fichier contenait
+# donc un `$` au lieu d'un numero, et rien n'etait jamais tue. Quatre niveaux
+# d'echappement imbriques : autant les eviter.
+# `exec` plus loin dans les scripts CONSERVE le PID, la valeur reste donc juste.
+if [ -n "$MOWBOT_PIDFILE" ]; then
+  echo $$ > "$MOWBOT_PIDFILE" 2>/dev/null || true
+fi
+
 # --- PATH : ~/.local/bin ---------------------------------------------------
 # Deux choses y vivent et sont indispensables aux scripts :
 #   - esptool (installe par pip --user) : reset et identification de l'ESP32 ;
@@ -69,6 +86,19 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 
 # Overlay eventuel (driver lidar compile depuis les sources)
 [ -f "$HOME/lidar_ws/install/setup.bash" ] && export MOWBOT_LIDAR_WS="$HOME/lidar_ws/install"
+
+# Driver NATIF du LD14, s'il a ete compile. On cherche d'abord SOUS
+# $MOWBOT_HOME : en mode conteneur, seul ce dossier est monte depuis l'hote,
+# donc c'est le seul endroit ou une compilation SURVIT au redemarrage du
+# conteneur. $HOME/ldlidar_ws reste accepte pour les installations natives.
+if [ -z "$MOWBOT_LDLIDAR_WS" ]; then
+  for d in "$MOWBOT_HOME/ldlidar_ws/install" "$HOME/ldlidar_ws/install"; do
+    if [ -x "$d/ldlidar_sl_ros2/lib/ldlidar_sl_ros2/ldlidar_sl_ros2_node" ]; then
+      export MOWBOT_LDLIDAR_WS="$d"
+      break
+    fi
+  done
+fi
 
 # --- Peripheriques : liens udev, avec repli par detection -------------------
 # Les liens sont crees par detect_devices.sh, qui identifie chaque appareil par
@@ -123,5 +153,22 @@ mowbot_hz() {
       "source /opt/ros/${MOWBOT_ROS_DISTRO}/setup.bash && python3 '$MOWBOT_NODES/hz.py' '$1' $d" 2>/dev/null
   else
     python3 "$MOWBOT_NODES/hz.py" "$1" "$d" 2>/dev/null
+  fi
+}
+
+# Lance un noeud Python du projet, DANS le conteneur si l'hote n'a pas de ROS.
+#   mowbot_py wait_tf.py map odom 40
+# Sans ce relais, tout script de l'hote appelant un noeud rclpy echoue en
+# "ModuleNotFoundError: rclpy" : new_map.sh, restart_slam.sh, esp32_reset.sh.
+mowbot_py() {
+  local script="$1"
+  shift
+  if [ -n "$MOWBOT_NO_ROS" ]; then
+    local ct="${MOWBOT_CONTAINER:-mowbot_jazzy}"
+    docker exec "$ct" bash -c \
+      'source /opt/ros/'"$MOWBOT_ROS_DISTRO"'/setup.bash; exec python3 "$@"' \
+      _ "$MOWBOT_NODES/$script" "$@"
+  else
+    python3 "$MOWBOT_NODES/$script" "$@"
   fi
 }
