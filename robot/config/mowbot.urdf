@@ -24,7 +24,16 @@
   <link name="base_link">
     <visual>
       <origin xyz="0 0 -0.02" rpy="0 0 0"/>
-      <geometry><cylinder radius="0.22" length="0.018"/></geometry>
+      <!-- rayon 0.2429 = bord exterieur des roues DESSINEES (0.22035 +
+           demi-largeur de roue 0.0225). L'ancienne valeur 0.22
+           faisait DEPASSER les roues du plateau a l'affichage, ce qui laissait
+           croire a une erreur de geometrie alors que les positions de roues
+           etaient justes.
+           CE RAYON N'A PAS ETE MESURE sur le robot : il est aligne sur
+           l'enveloppe des roues pour que le dessin soit coherent. Si le plateau
+           reel est plus grand ou plus petit, corriger ici : ca n'a AUCUN effet
+           sur la navigation, qui utilise le footprint de nav2_params.yaml. -->
+      <geometry><cylinder radius="0.2429" length="0.018"/></geometry>
       <material name="bois"/>
     </visual>
   </link>
@@ -54,10 +63,19 @@
   </link>
   <joint name="base_to_wheel_left" type="fixed">
     <parent link="base_link"/><child link="wheel_left"/>
-    <!-- 0.23035 = demi entraxe CALIBRE au sol (0.4607 m), confirme par trois
-         methodes independantes. Le modele portait 0.24, soit 0.48 m, valeur
-         d'avant calibration. -->
-    <origin xyz="0 0.23035 0" rpy="0 0 0"/>
+    <!-- 0.22035 : position des roues A L'AFFICHAGE, rentree de 1 cm par
+         rapport au demi entraxe cinematique.
+         POURQUOI L'ECART. L'entraxe calibre au sol vaut 0.4607 m, soit un demi
+         entraxe de 0.23035 : c'est la distance entre les POINTS DE CONTACT, et
+         c'est cette valeur qui gouverne la cinematique (TRACK_WIDTH_M dans le
+         firmware). Mais le cylindre dessine fait 4.5 cm de large, donc son bord
+         exterieur atteignait 0.2529 : a l'ecran la roue TOUCHAIT un obstacle
+         dont elle etait a 1 cm dans la realite.
+         CE FICHIER NE SERT QU'A L'AFFICHAGE. Il n'entre ni dans la cinematique
+         (firmware) ni dans les collisions (footprint de nav2_params.yaml).
+         Le corriger ici ne change donc RIEN au comportement du robot, seulement
+         a ce que montre RViz. -->
+    <origin xyz="0 0.22035 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_left">
     <visual>
@@ -79,7 +97,7 @@
   </link>
   <joint name="base_to_wheel_right" type="fixed">
     <parent link="base_link"/><child link="wheel_right"/>
-    <origin xyz="0 -0.23035 0" rpy="0 0 0"/>
+    <origin xyz="0 -0.22035 0" rpy="0 0 0"/>
   </joint>
   <link name="hub_right">
     <visual>
