@@ -1,0 +1,25 @@
+[Unit]
+Description=mowbot conteneur ROS 2 Jazzy (pile complete)
+# __USER__ / __HOME__ sont remplaces par install.sh
+#
+# Ce service porte le conteneur dans lequel TOUS les autres tournent. Il doit
+# donc demarrer avant eux, et leur arret ne doit pas l'emporter : d'ou le
+# Requires/After pose dans les autres unites, et non ici.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=__USER__
+Environment=HOME=__HOME__
+ExecStart=/bin/bash __HOME__/mowbot/bin/run_container.sh
+# L'arret doit laisser docker terminer proprement, sinon le conteneur reste
+# enregistre et le prochain demarrage echoue sur "name already in use".
+ExecStop=/usr/bin/docker stop -t 20 mowbot_jazzy
+TimeoutStopSec=40
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+# Pile mowbot complete sous ROS 2 Jazzy, pour un hote qui ne peut pas y aller
+# nativement -- typiquement un Jetson Xavier NX, bloque en Ubuntu 20.04 parce
+# que JetPack 5.1.7 est la derniere version qui le supporte.
+#
+# Le noyau reste celui de l'hote (L4T 5.10) : un conteneur ne change que
+# l'espace utilisateur. Verifie sur Xavier NX : Jazzy demarre, rclpy s'importe,
+# et le DDS traverse la frontiere du conteneur.
+FROM ros:jazzy-ros-base
+
+# DEBIAN_FRONTEND : sans lui, l'installation de paquets qui configurent un
+# fuseau horaire ou un clavier bloque en attendant une reponse.
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-jazzy-navigation2 \
+      ros-jazzy-nav2-bringup \
+      ros-jazzy-slam-toolbox \
+      ros-jazzy-robot-localization \
+      ros-jazzy-robot-state-publisher \
+      ros-jazzy-xacro \
+      ros-jazzy-tf2-ros \
+      ros-jazzy-tf2-tools \
+      ros-jazzy-teleop-twist-joy \
+      ros-jazzy-rosbridge-suite \
+      python3-serial \
+      python3-numpy \
+      python3-yaml \
+      usbutils \
+      iproute2 \
+      procps \
+      nano \
+    && rm -rf /var/lib/apt/lists/*
+
+# Le code du robot est MONTE depuis l'hote (-v ~/mowbot:/mowbot) et non copie :
+# on modifie un noeud Python sans reconstruire l'image.
+ENV MOWBOT_HOME=/mowbot
+ENV ROS_DOMAIN_ID=0
+
+# `source` a chaque shell, sinon chaque `docker exec` repart sans environnement
+# ROS -- piege classique, et cause de "ModuleNotFoundError: rclpy" deja
+# rencontree sur ce projet avec des scripts lances en detache.
+RUN echo 'source /opt/ros/jazzy/setup.bash' >> /root/.bashrc
+
+# Le conteneur doit VIVRE, les services y entrant par `docker exec`. `sleep
+# infinity` en PID 1 remonte correctement les signaux d'arret de docker.
+CMD ["sleep", "infinity"]

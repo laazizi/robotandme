@@ -16,6 +16,11 @@
 #
 #  Options :  --no-apt      ne pas installer de paquets
 #             --no-udev     ne pas toucher aux regles udev
+#             --container   la pile ROS tourne dans un conteneur Jazzy, pas en
+#                           natif. Pour un hote qui ne peut pas avoir Jazzy --
+#                           un Jetson Xavier NX, bloque en Ubuntu 20.04. Les
+#                           unites systemd restent sur l'hote et entrent dans le
+#                           conteneur par `docker exec`.
 #             --no-enable   installer les services sans les activer au boot
 # ============================================================================
 # Pas de `set -e` : certaines etapes (enable de services, detection USB)
@@ -24,10 +29,11 @@ set -o pipefail
 SRC="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 DEST="$HOME/mowbot"
 USER_NAME="$(id -un)"
-NO_APT=0; NO_UDEV=0; NO_ENABLE=0
+NO_APT=0; NO_UDEV=0; NO_ENABLE=0; CONTAINER=0
 for a in "$@"; do
   case "$a" in
     --no-apt) NO_APT=1;; --no-udev) NO_UDEV=1;; --no-enable) NO_ENABLE=1;;
+    --container) CONTAINER=1;;
   esac
 done
 
@@ -44,11 +50,19 @@ ROS_D=""
 for d in jazzy humble iron rolling; do
   [ -f "/opt/ros/$d/setup.bash" ] && ROS_D="$d" && break
 done
-if [ -z "$ROS_D" ]; then
-  echo "ERREUR : aucune distro ROS 2 dans /opt/ros — installer ros-<distro>-ros-base d'abord." >&2
+if [ -z "$ROS_D" ] && [ "$CONTAINER" = "1" ]; then
+  # Normal en mode conteneur : l'hote n'a PAS de ROS, c'est tout l'objet de la
+  # manoeuvre. La distro est celle de l'image, et les YAML doivent etre
+  # substitues pour elle.
+  ROS_D="${MOWBOT_ROS_DISTRO:-jazzy}"
+  echo ">> aucun ROS sur l'hote : normal en mode conteneur, on cible $ROS_D"
+elif [ -z "$ROS_D" ]; then
+  echo "ERREUR : aucune distro ROS 2 dans /opt/ros — installer ros-<distro>-ros-base," >&2
+  echo "         ou passer --container si la pile doit tourner dans un conteneur." >&2
   exit 1
+else
+  echo ">> ROS 2 detecte : $ROS_D"
 fi
-echo ">> ROS 2 detecte : $ROS_D"
 
 # --- 2. copie des fichiers --------------------------------------------------
 echo ">> copie vers $DEST"
@@ -84,7 +98,18 @@ done
 chmod +x "$DEST"/bin/*.sh "$DEST"/bin/mowbot 2>/dev/null || true
 
 # --- 3. paquets ROS ---------------------------------------------------------
-if [ "$NO_APT" = "0" ]; then
+if [ "$CONTAINER" = "1" ]; then
+  # Les paquets ROS vivent dans l'image, pas sur l'hote. En revanche esptool est
+  # necessaire SUR L'HOTE : c'est lui qui reinitialise l'ESP32 et l'identifie
+  # pour les regles udev, et udev ne tourne pas dans un conteneur.
+  echo ">> mode conteneur : paquets ROS non installes sur l'hote"
+  if ! python3 -c "import esptool" 2>/dev/null; then
+    echo "   esptool absent de l'hote : necessaire pour l'ESP32 et les regles udev"
+    python3 -m pip install --user -q -U "esptool>=4.12" 2>/dev/null \
+      || python3 -m pip install --user --break-system-packages -q -U "esptool>=4.12" 2>/dev/null \
+      || echo "   ATTENTION : esptool indisponible"
+  fi
+elif [ "$NO_APT" = "0" ]; then
   echo ">> paquets ROS ($ROS_D)"
   PKGS="ros-$ROS_D-robot-localization ros-$ROS_D-slam-toolbox ros-$ROS_D-navigation2
         ros-$ROS_D-nav2-bringup ros-$ROS_D-rosbridge-suite ros-$ROS_D-robot-state-publisher
@@ -135,9 +160,26 @@ fi
 
 # --- 4. services systemd ----------------------------------------------------
 echo ">> services systemd"
+CTNAME="${MOWBOT_CONTAINER:-mowbot_jazzy}"
 for f in "$SRC"/systemd/*.service; do
   b="$(basename "$f")"
   sed -e "s|__USER__|$USER_NAME|g" -e "s|__HOME__|$HOME|g" "$f" > "/tmp/$b"
+
+  # MODE CONTENEUR : les noeuds ROS doivent tourner DANS le conteneur, mais
+  # leurs unites restent sur l'hote pour garder les dependances systemd, les
+  # redemarrages automatiques et les journaux. On remplace donc le lanceur.
+  # Le code etant monte au MEME chemin dans le conteneur, les chemins absolus
+  # des unites restent valables tels quels -- c'est ce qui permet de ne rien
+  # modifier d'autre.
+  # shmclean et le conteneur lui-meme sont EXCLUS : le premier purge /dev/shm de
+  # l'hote, le second EST le conteneur.
+  if [ "$CONTAINER" = "1" ] && \
+     [ "$b" != "mowbot-container.service" ] && [ "$b" != "mowbot-shmclean.service" ]; then
+    sed -i "s|^ExecStart=/bin/bash |ExecStart=/usr/bin/docker exec $CTNAME /bin/bash |" "/tmp/$b"
+    # Sans cette dependance, un service peut demarrer avant le conteneur et
+    # echouer sur "No such container" -- puis boucler.
+    sed -i "s|^\[Service\]|Requires=mowbot-container.service\nAfter=mowbot-container.service\n\n[Service]|" "/tmp/$b"
+  fi
   sudo mv "/tmp/$b" "/etc/systemd/system/$b"
 done
 sudo systemctl daemon-reload
@@ -145,6 +187,8 @@ sudo systemctl daemon-reload
 # moindre noeud ROS demarre (cf. l'en-tete de son unite).
 SERVICES="mowbot-shmclean mowbot-tf mowbot-agent mowbot-razor mowbot-lidar
           mowbot-ekf mowbot-description mowbot-rosbridge mowbot-web mowbot-nav"
+# Le conteneur en PREMIER : tous les autres en dependent.
+[ "$CONTAINER" = "1" ] && SERVICES="mowbot-container $SERVICES"
 if [ "$NO_ENABLE" = "0" ]; then
   sudo systemctl enable $SERVICES >/dev/null 2>&1
   echo "   actives au boot : $(echo $SERVICES | wc -w) services"
