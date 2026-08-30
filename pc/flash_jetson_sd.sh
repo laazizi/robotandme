@@ -6,7 +6,8 @@
 #  Usage :
 #    ./flash_jetson_sd.sh --image <fichier.zip|.img> --device /dev/mmcblkX \
 #                         [--user nvidia] [--pass nvidia] [--host oldjetson] \
-#                         [--ssid aaa] [--wifi-pass 12345678] [--no-verify]
+#                         [--ssid aaa] [--wifi-pass 12345678]
+#                         [--verify-quick | --no-verify]
 #    ./flash_jetson_sd.sh ... --dry-run      montre tout, n'ecrit rien
 #
 #  POURQUOI CE SCRIPT EXISTE. L'image SD de NVIDIA lance `oem-config` au premier
@@ -18,7 +19,7 @@
 set -o pipefail
 
 IMG=""; DEV=""; USR="nvidia"; PWD_="nvidia"; HOST="oldjetson"
-SSID=""; WPASS=""; DRY=0; YES=0; VERIFY=1
+SSID=""; WPASS=""; DRY=0; YES=0; VERIFY=1; QUICK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --image) IMG="$2"; shift ;;
@@ -30,6 +31,7 @@ while [ $# -gt 0 ]; do
     --wifi-pass) WPASS="$2"; shift ;;
     --dry-run) DRY=1 ;;
     --no-verify) VERIFY=0 ;;
+    --verify-quick) QUICK=1 ;;
     --yes) YES=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "option inconnue : $1" >&2; exit 1 ;;
@@ -128,10 +130,33 @@ run "sync"
 # gravee. Comparer cote a cote est lent (compter le double du temps de gravure)
 # mais c'est la seule facon de savoir.
 if [ "$VERIFY" = "1" ] && [ "$DRY" != "1" ]; then
-  msg "verification octet par octet ($(python3 -c "print(f'{$IMGSZ/1024**3:.1f}')") Go a relire)"
-  echo "   patience : environ le double du temps de gravure."
-  if sudo cmp -n "$IMGSZ" "$RAW" "$DEV"; then
-    echo "   IDENTIQUE : la carte porte bien l'image complete."
+  # Trois niveaux, selon la confiance qu'on a dans la carte :
+  #   complet (defaut) : relit tout. Le seul qui detecte une carte qui ACCEPTE
+  #                      les ecritures sans les stocker -- panne reellement
+  #                      rencontree, et qu'aucun compteur de dd ne revele.
+  #   --verify-quick   : relit les 2 premiers Go. Attrape une gravure tronquee
+  #                      ou une carte franchement morte, en une quarantaine de
+  #                      secondes. Ne prouve RIEN sur le reste de la carte.
+  #   --no-verify      : rien. A reserver a une carte deja validee une fois.
+  CHECKSZ="$IMGSZ"
+  if [ "$QUICK" = "1" ]; then
+    CHECKSZ=$((2 * 1024 * 1024 * 1024))
+    [ "$CHECKSZ" -gt "$IMGSZ" ] && CHECKSZ="$IMGSZ"
+  fi
+  msg "verification octet par octet ($(python3 -c "print(f'{$CHECKSZ/1024**3:.1f}')") Go a relire)"
+  if [ "$QUICK" = "1" ]; then
+    echo "   mode rapide : seuls les 2 premiers Go sont controles."
+    echo "   un defaut au-dela ne sera PAS vu."
+  else
+    echo "   compter environ le temps de gravure. --verify-quick pour n'en"
+    echo "   controler que les 2 premiers Go."
+  fi
+  if sudo cmp -n "$CHECKSZ" "$RAW" "$DEV"; then
+    if [ "$QUICK" = "1" ]; then
+      echo "   les 2 premiers Go sont identiques (le reste n'est pas controle)."
+    else
+      echo "   IDENTIQUE : la carte porte bien l'image complete."
+    fi
   else
     echo
     echo "   ECHEC DE LA VERIFICATION : la carte ne correspond pas a l'image." >&2

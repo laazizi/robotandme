@@ -45,6 +45,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; EXTRA="$EXTRA --dry-run" ;;
     --yes) YES=1; EXTRA="$EXTRA --yes" ;;
     --no-verify) EXTRA="$EXTRA --no-verify" ;;
+    --verify-quick) EXTRA="$EXTRA --verify-quick" ;;
     --identify) IDENT=1 ;;
     -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "option inconnue : $1" >&2; exit 1 ;;
