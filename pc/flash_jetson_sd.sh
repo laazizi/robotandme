@@ -6,7 +6,7 @@
 #  Usage :
 #    ./flash_jetson_sd.sh --image <fichier.zip|.img> --device /dev/mmcblkX \
 #                         [--user nvidia] [--pass nvidia] [--host oldjetson] \
-#                         [--ssid aaa] [--wifi-pass 12345678]
+#                         [--ssid aaa] [--wifi-pass 12345678] [--no-verify]
 #    ./flash_jetson_sd.sh ... --dry-run      montre tout, n'ecrit rien
 #
 #  POURQUOI CE SCRIPT EXISTE. L'image SD de NVIDIA lance `oem-config` au premier
@@ -18,7 +18,7 @@
 set -o pipefail
 
 IMG=""; DEV=""; USR="nvidia"; PWD_="nvidia"; HOST="oldjetson"
-SSID=""; WPASS=""; DRY=0; YES=0
+SSID=""; WPASS=""; DRY=0; YES=0; VERIFY=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --image) IMG="$2"; shift ;;
@@ -29,6 +29,7 @@ while [ $# -gt 0 ]; do
     --ssid) SSID="$2"; shift ;;
     --wifi-pass) WPASS="$2"; shift ;;
     --dry-run) DRY=1 ;;
+    --no-verify) VERIFY=0 ;;
     --yes) YES=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "option inconnue : $1" >&2; exit 1 ;;
@@ -110,9 +111,41 @@ esac
 [ "$DRY" = "1" ] || [ -f "$RAW" ] || { echo "   image absente : $RAW" >&2; exit 1; }
 
 msg "gravure sur $DEV"
+IMGSZ=$(stat -c%s "$RAW" 2>/dev/null || echo 0)
+python3 -c "print(f'   image : {$IMGSZ/1024**3:.2f} Go')"
 echo "   ne pas debrancher la carte. Compter 10 a 25 min selon le lecteur."
-run "sudo dd if='$RAW' of='$DEV' bs=4M conv=fsync status=progress"
+# iflag=fullblock : sans lui, une lecture courte (un signal qui interrompt read(),
+# et status=progress en emet) compte comme un bloc entier et dd peut s'arreter
+# AVANT la fin du fichier. Constate : 8.2 Go ecrits sur 16.8, "1961+6 records",
+# aucune erreur signalee -- puis un montage qui echoue sur "bad superblock",
+# symptome trompeur qui fait chercher du cote du systeme de fichiers.
+run "sudo dd if='$RAW' of='$DEV' bs=4M iflag=fullblock conv=fsync status=progress"
 run "sync"
+
+# ---- VERIFICATION DE L'ECRITURE ----------------------------------------
+# Ne PAS faire confiance a dd. La premiere version de ce script enchainait sur
+# le montage sans controler, et a preconfigure dans le vide une carte a moitie
+# gravee. Comparer cote a cote est lent (compter le double du temps de gravure)
+# mais c'est la seule facon de savoir.
+if [ "$VERIFY" = "1" ] && [ "$DRY" != "1" ]; then
+  msg "verification octet par octet ($(python3 -c "print(f'{$IMGSZ/1024**3:.1f}')") Go a relire)"
+  echo "   patience : environ le double du temps de gravure."
+  if sudo cmp -n "$IMGSZ" "$RAW" "$DEV"; then
+    echo "   IDENTIQUE : la carte porte bien l'image complete."
+  else
+    echo
+    echo "   ECHEC DE LA VERIFICATION : la carte ne correspond pas a l'image." >&2
+    echo "   Ne pas utiliser cette carte. Pistes :" >&2
+    echo "     - relancer la gravure (une lecture courte peut avoir tronque dd)" >&2
+    echo "     - essayer un autre lecteur de cartes, ou un port USB different" >&2
+    echo "     - la carte est peut-etre defectueuse ou de capacite mensongere" >&2
+    exit 1
+  fi
+else
+  echo "   verification DESACTIVEE (--no-verify) : on ne sait pas si l'ecriture"
+  echo "   est complete. Un montage qui echoue ensuite viendra probablement de la."
+fi
+
 run "sudo partprobe '$DEV' 2>/dev/null || true"
 sleep 3
 
@@ -135,7 +168,14 @@ done
 echo "   APP = $APP ($(python3 -c "print(f'{$BIGGEST/1024**3:.1f} Go')"))"
 
 MNT="$(mktemp -d)"
-sudo mount "$APP" "$MNT" || { echo "   montage impossible" >&2; exit 1; }
+if ! sudo mount "$APP" "$MNT"; then
+  echo "   MONTAGE IMPOSSIBLE de $APP." >&2
+  echo "   Neuf fois sur dix la gravure est INCOMPLETE : la table de partitions" >&2
+  echo "   est ecrite au tout debut de la carte, donc les partitions semblent" >&2
+  echo "   correctes, alors que le systeme de fichiers qu'elles contiennent est" >&2
+  echo "   tronque. Verifier le nombre d'octets annonce par dd et relancer." >&2
+  exit 1
+fi
 cleanup() { sudo umount "$MNT" 2>/dev/null; rmdir "$MNT" 2>/dev/null; }
 trap cleanup EXIT
 
