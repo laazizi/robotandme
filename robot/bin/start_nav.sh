@@ -123,8 +123,23 @@ if [ -f "$SPEEDS" ]; then
   fi
 fi
 
-mowbot_log "demarrage nav2"
-ros2 launch nav2_bringup navigation_launch.py \
+# On lance NOTRE fichier, pas le navigation_launch.py de nav2_bringup : il est
+# identique en tout point sauf qu'il ne demarre ni route_server (routage sur un
+# graphe d'entrepot) ni docking_server (station de recharge inexistante), qui
+# mangeaient 36 % d'un coeur pendant que le controller_server ratait sa cadence.
+# Voir launch/mowbot_nav2.launch.py, et refaire_mowbot_nav2.sh pour le
+# resynchroniser apres une mise a jour de nav2.
+# Repli sur le fichier amont si le fork est absent : mieux vaut une navigation
+# un peu gourmande que pas de navigation du tout.
+LAUNCH="$MOWBOT_HOME/launch/mowbot_nav2.launch.py"
+if [ -f "$LAUNCH" ]; then
+  mowbot_log "demarrage nav2 (sans route_server ni docking_server)"
+  set -- "$LAUNCH"
+else
+  mowbot_log "ATTENTION : $LAUNCH absent, repli sur nav2_bringup"
+  set -- nav2_bringup navigation_launch.py
+fi
+ros2 launch "$@" \
   params_file:="$PARAMS" use_sim_time:=false \
   > "$MOWBOT_LOGS/nav2.log" 2>&1 < /dev/null &
 NAV2_PID=$!
