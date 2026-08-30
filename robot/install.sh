@@ -171,10 +171,18 @@ for f in "$SRC"/systemd/*.service; do
   # Le code etant monte au MEME chemin dans le conteneur, les chemins absolus
   # des unites restent valables tels quels -- c'est ce qui permet de ne rien
   # modifier d'autre.
-  # shmclean et le conteneur lui-meme sont EXCLUS : le premier purge /dev/shm de
-  # l'hote, le second EST le conteneur.
-  if [ "$CONTAINER" = "1" ] && \
-     [ "$b" != "mowbot-container.service" ] && [ "$b" != "mowbot-shmclean.service" ]; then
+  # TROIS unites restent sur l'HOTE et ne sont pas reecrites :
+  #   - mowbot-container : elle EST le conteneur ;
+  #   - mowbot-shmclean  : elle purge le /dev/shm de l'hote ;
+  #   - mowbot-agent     : run_agent.sh lance lui-meme un `docker run` (l'agent
+  #     micro-ROS a sa propre image officielle, il n'existe pas en paquet apt).
+  #     Le reecrire en `docker exec` reviendrait a lancer docker DANS docker,
+  #     sans socket : ca echouerait a chaque fois.
+  case "$b" in
+    mowbot-container.service|mowbot-shmclean.service|mowbot-agent.service) HOTE=1;;
+    *) HOTE=0;;
+  esac
+  if [ "$CONTAINER" = "1" ] && [ "$HOTE" = "0" ]; then
     sed -i "s|^ExecStart=/bin/bash |ExecStart=/usr/bin/docker exec $CTNAME /bin/bash |" "/tmp/$b"
     # Sans cette dependance, un service peut demarrer avant le conteneur et
     # echouer sur "No such container" -- puis boucler.

@@ -1,0 +1,30 @@
+#!/bin/bash
+# Relais `ros2` de l'HOTE vers le conteneur.
+#
+# En mode conteneur, l'hote n'a pas de ROS : taper `ros2 topic list` echoue avec
+# "command not found", et la forme complete est indigeste :
+#   docker exec mowbot_jazzy bash -c 'source /opt/ros/jazzy/setup.bash && ros2 ...'
+# Ce script rend `ros2 topic list` utilisable tel quel.
+#
+# POURQUOI SOURCER EXPLICITEMENT : `docker exec` ne passe PAS par l'ENTRYPOINT de
+# l'image (contrairement a `docker run`), et un bash NON INTERACTIF ne lit pas
+# .bashrc. Sans ce `source`, ros2 est introuvable meme dans le conteneur --
+# variante du piege "ModuleNotFoundError: rclpy" deja rencontre sur ce projet
+# avec des scripts lances en detache.
+NOM="${MOWBOT_CONTAINER:-mowbot_jazzy}"
+DISTRO="${MOWBOT_ROS_DISTRO:-jazzy}"
+
+if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$NOM"; then
+  echo "ros2 : le conteneur $NOM ne tourne pas." >&2
+  echo "       le demarrer :  sudo systemctl start mowbot-container" >&2
+  exit 1
+fi
+
+# -t seulement si on est sur un terminal : sinon `ros2 topic echo` en pipe
+# renvoie une erreur "the input device is not a TTY".
+TT=""
+[ -t 0 ] && [ -t 1 ] && TT="-t"
+
+exec docker exec -i $TT \
+  -e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}" \
+  "$NOM" bash -c "source /opt/ros/$DISTRO/setup.bash && exec ros2 \"\$@\"" ros2 "$@"

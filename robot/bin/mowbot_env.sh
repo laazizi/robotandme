@@ -28,18 +28,43 @@ if [ ! -w "$MOWBOT_LOGS" ]; then
   mkdir -p "$MOWBOT_LOGS" 2>/dev/null
 fi
 
+# --- PATH : ~/.local/bin ---------------------------------------------------
+# Deux choses y vivent et sont indispensables aux scripts :
+#   - esptool (installe par pip --user) : reset et identification de l'ESP32 ;
+#   - le relais `ros2` en mode conteneur (bin/ros2), sans lequel mowbot_hz
+#     appelle un `ros2 topic hz` introuvable et rapporte TOUT comme muet --
+#     c'est arrive au premier demarrage sur le Jetson, et le diagnostic etait
+#     entierement faux alors que la pile tournait parfaitement.
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
 # --- Distro ROS : detectee, jamais codee en dur -----------------------------
 if [ -z "$MOWBOT_ROS_DISTRO" ]; then
   for d in jazzy humble iron rolling; do
     [ -f "/opt/ros/$d/setup.bash" ] && MOWBOT_ROS_DISTRO="$d" && break
   done
 fi
+# PAS D'ERREUR si /opt/ros est vide : c'est le cas NORMAL sur un hote en mode
+# conteneur. Le Jetson Xavier NX est bloque en Ubuntu 20.04 (JetPack 5.1.7 est
+# la derniere version qui le supporte) alors que Jazzy exige 24.04 : la pile ROS
+# vit dans un conteneur, et l'hote n'a aucun /opt/ros.
+# Certains scripts tournent quand meme SUR L'HOTE et ont besoin de cet
+# environnement sans avoir besoin de ROS : run_container.sh (il lance le
+# conteneur), run_agent.sh (il lance le conteneur de l'agent micro-ROS),
+# detect_devices.sh (udev ne tourne pas dans un conteneur). Les faire echouer
+# ici les rendrait tous inutilisables.
 if [ -z "$MOWBOT_ROS_DISTRO" ]; then
-  echo "ERREUR : aucune distro ROS 2 trouvee dans /opt/ros" >&2
-  return 1 2>/dev/null || exit 1
+  # Valeur retenue pour NOMMER les choses (le tag de l'image de l'agent, par
+  # exemple), sans rien sourcer.
+  MOWBOT_ROS_DISTRO="${MOWBOT_ROS_DISTRO_DEFAULT:-jazzy}"
+  export MOWBOT_ROS_DISTRO
+  export MOWBOT_NO_ROS=1
+else
+  export MOWBOT_ROS_DISTRO
+  source "/opt/ros/$MOWBOT_ROS_DISTRO/setup.bash"
 fi
-export MOWBOT_ROS_DISTRO
-source "/opt/ros/$MOWBOT_ROS_DISTRO/setup.bash"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 
 # Overlay eventuel (driver lidar compile depuis les sources)
