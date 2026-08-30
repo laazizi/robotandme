@@ -8,6 +8,19 @@ bt_navigator:
     odom_topic: /odometry/filtered
     bt_loop_duration: 10
     default_server_timeout: 20
+    # NOTRE arbre de comportement, et non celui de nav2. Un seul changement :
+    # l'ordre des actions de degagement. L'amont essaie d'abord d'effacer les
+    # costmaps, PUIS DE TOURNER SUR PLACE, PUIS D'ATTENDRE 5 s, et ne recule
+    # qu'en quatrieme. Sur ce chassis non circulaire (0.54 x 0.50 m), tourner
+    # sur place contre un obstacle balaie les coins du contour dedans : la
+    # rotation est refusee et le robot reste coince. Mesure : 8 "Goal failed"
+    # pour UN SEUL "BackUp" dans le journal.
+    # Reculer passe donc en deuxieme, juste apres l'effacement des costmaps qui
+    # est gratuit et sans mouvement. Details dans config/bt_mowbot.xml.
+    # __HOME__ est substitue par install.sh : les YAML n'acceptent pas de
+    # variable d'environnement, et le chemin doit etre valide DANS le conteneur
+    # (le code est monte au meme chemin dedans et dehors).
+    default_nav_to_pose_bt_xml: "__HOME__/mowbot/config/bt_mowbot.xml"
 
 controller_server:
   ros__parameters:
@@ -75,15 +88,37 @@ controller_server:
       # -- echantillonnage --
       # 40 echantillons en rotation : c'est la rotation qui permet de
       # contourner. Le robot est tres lent, le CPU suit largement.
-      vx_samples: 20
+      # 10 x 20 = 200 trajectoires au lieu de 20 x 40 = 800 (DWB en annonçait
+      # 860 avec les rotations sur place). Le controller_server consommait 43 %
+      # d'un coeur -- le double du planner -- et ratait sa cadence de 10 Hz 673
+      # fois : c'est l'evaluation des trajectoires qui coute, pas la
+      # planification.
+      # 200 reste au-dessus du defaut de nav2 pour un diffdrive (20 x 20 = 400
+      # en comptant vy, mais vy_samples=1 ici puisque le robot ne se translate
+      # pas lateralement). Si l'evitement devient trop grossier, remonter
+      # vtheta_samples en premier : c'est la finesse de braquage.
+      vx_samples: 10
       vy_samples: 1
-      vtheta_samples: 40
+      vtheta_samples: 20
       # 4 s d'anticipation = 22 cm seulement a 0.055 m/s. Plus court, le
       # robot ne verrait pas assez loin pour amorcer un evitement.
       sim_time: 4.0
-      linear_granularity: 0.02
-      angular_granularity: 0.025
-      transform_tolerance: 0.3
+      # Pas d'echantillonnage des trajectoires simulees. A 0.02 m, une
+      # trajectoire de 0.9 m (3 s a 0.30 m/s) comptait 45 points, et 860
+      # trajectoires faisaient 39 000 evaluations par cycle, dix fois par
+      # seconde. A 0.04 m c'est la moitie, et le robot fait 50 cm de large :
+      # 4 cm de resolution suffisent largement a detecter un obstacle.
+      linear_granularity: 0.04
+      angular_granularity: 0.05
+      # 0.6 s au lieu de 0.3, MESURE sur le Jetson : les TF sont publiees
+      # environ 280 ms apres l horodatage des scans, si bien que la valeur par
+      # defaut de nav2 tombait PILE sur le seuil. Resultat : 73 erreurs
+      # "Extrapolation Error looking up target frame" et des buts qui
+      # echouaient une fois sur deux, sans logique apparente.
+      # Ce n est pas gratuit : nav2 planifie alors sur une pose vieille de
+      # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse.
+      # A resserrer si le SLAM se met un jour a publier plus vite.
+      transform_tolerance: 0.6
       trans_stopped_velocity: 0.01
       short_circuit_trajectory_evaluation: True
       stateful: True
@@ -168,7 +203,18 @@ local_costmap:
       # bourrelet inutile tout autour -> passages refuses sans raison. Utile
       # aussi maintenant que la marche arriere est autorisee : la languette
       # est protegee sans elargir l'arriere.
-      footprint: "[[0.22, 0.10], [0.08, 0.26], [-0.08, 0.26], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.26], [0.08, -0.26], [0.22, -0.10]]"
+      # LARGEUR RAMENEE de 0.26 a 0.25 (demande utilisateur, 1 cm).
+      # Le bord exterieur des roues est a ±0.2529 m (demi-entraxe calibre
+      # 0.23035 + demi-largeur de roue 0.0225). Avec l'ancienne valeur, le
+      # contour effectif atteignait ±0.270 padding compris : un obstacle a 1 cm
+      # de la roue tombait DANS l'empreinte, et DWB rejetait les 860
+      # trajectoires ("ObstacleFootprint/Trajectory Hits Obstacle", 540 fois
+      # dans le journal). A ±0.250 + 0.010 de padding, le contour s'arrete a
+      # 0.260 et laisse 3 mm devant un obstacle a 1 cm.
+      # ATTENTION : 3 mm, c'est peu. Une erreur de localisation d'un centimetre
+      # suffit alors a ce que la roue touche VRAIMENT. Cette marge a ete reduite
+      # sciemment ; ne pas la rogner davantage sans y repenser.
+      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
       # 1 cm (etait 2) : marge ajoutee TOUT AUTOUR du contour. Le contour est
       # deja releve au reel ; 2 cm de plus rendaient des passages justes
       # inexecutables -- le planificateur global les jugeait franchissables et
@@ -204,6 +250,26 @@ local_costmap:
         # LOCAL = execution. Reste bas (5 cm) : c'est cette couche qui faisait
         # refuser des passages franchissables ("ca bloque pour rien"). La
         # securite reelle est assuree par le footprint, qui est exact.
+        #
+        # NAV2 SE PLAINT ICI, ET C'EST NORMAL. A chaque configuration il ecrit :
+        #   The configured inflation radius (0.050) is smaller than the computed
+        #   inscribed radius (0.230) of your footprint
+        # Ce message suppose la convention INVERSE de la notre : robot traite
+        # comme un point, et inflation >= rayon inscrit chargee de representer sa
+        # taille. C'est ce qu'exige le critere BaseObstacle, que nous n'utilisons
+        # PAS (voir critics, plus haut : ObstacleFootprint).
+        # ObstacleFootprint teste le contour complet contre le costmap. Monter
+        # l'inflation a 0.23 compterait donc la taille du robot DEUX FOIS : les
+        # cellules a moins de 23 cm d'un obstacle deviennent bloquantes, et comme
+        # le contour s'etend deja a 25 cm, le robot refuserait tout passage de
+        # moins de ~48 cm alors qu'il en fait 50 de large et ne touche qu'a 23.
+        # C'est exactement le "ca bloque pour rien" corrige plus haut.
+        # NE PAS "corriger" cette valeur pour faire taire l'erreur. Si l'on
+        # voulait la faire taire, il faudrait passer a BaseObstacle + robot_radius
+        # -- au prix d'un contour circulaire, faux pour ce chassis.
+        # Les 5 cm ne sont pas nuls pour autant : etant sous le rayon inscrit,
+        # toute cellule qu'ils marquent devient bloquante, ce qui donne 5 cm de
+        # marge reelle autour des obstacles. Mesure au mur : 1 cm de jeu physique.
         inflation_radius: 0.05
         cost_scaling_factor: 5.0
       always_send_full_costmap: True
@@ -217,7 +283,7 @@ global_costmap:
       robot_base_frame: base_link
       resolution: 0.04
       # meme contour reel que le local_costmap (cf. commentaire plus haut)
-      footprint: "[[0.22, 0.10], [0.08, 0.26], [-0.08, 0.26], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.26], [0.08, -0.26], [0.22, -0.10]]"
+      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.27, 0.08], [-0.27, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
       footprint_padding: 0.01
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -269,7 +335,16 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      # SYNTAXE JAZZY : "paquet::Classe". Humble utilisait "paquet/Classe", et
+      # install.sh fait la conversion INVERSE si la distro cible est Humble.
+      # Le fichier source porte desormais la syntaxe moderne, parce que c'est
+      # celle des deux machines du projet -- et parce qu'une copie directe dans
+      # config/, sans passer par install.sh, reintroduisait sinon l'ancienne
+      # syntaxe. Symptome : planner_server FATAL "the class
+      # nav2_navfn_planner/NavfnPlanner does not exist", le lifecycle_manager
+      # abandonne TOUTE la pile, et bt_navigator reste unconfigured : les buts
+      # ne sont plus recus du tout.
+      plugin: "nav2_navfn_planner::NavfnPlanner"
       tolerance: 0.10
       use_astar: true
       allow_unknown: false
@@ -289,14 +364,22 @@ behavior_server:
     cycle_frequency: 10.0
     behavior_plugins: ["spin", "backup", "wait"]
     spin:
-      plugin: "nav2_behaviors/Spin"
+      plugin: "nav2_behaviors::Spin"
     backup:
-      plugin: "nav2_behaviors/BackUp"
+      plugin: "nav2_behaviors::BackUp"
     wait:
-      plugin: "nav2_behaviors/Wait"
+      plugin: "nav2_behaviors::Wait"
     global_frame: odom
     robot_base_frame: base_link
-    transform_tolerance: 0.3
+    # 0.6 s au lieu de 0.3. MESURE sur le Jetson : les TF sont publiees ~280 ms
+    # apres l'horodatage des scans, la tolerance par defaut de 0.3 tombait donc
+    # PILE sur le seuil -- d'ou 73 erreurs "Extrapolation Error looking up
+    # target frame" et des buts qui echouaient une fois sur deux. La valeur par
+    # defaut de nav2 est calee sur des machines plus rapides.
+    # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
+    # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
+    # a resserrer si un jour le SLAM publie plus vite.
+    transform_tolerance: 0.6
     max_rotational_vel: 0.15
     min_rotational_vel: 0.05
     rotational_acc_lim: 2.0
@@ -343,7 +426,15 @@ collision_monitor:
   ros__parameters:
     base_frame_id: "base_link"
     odom_frame_id: "odom"
-    transform_tolerance: 0.3
+    # 0.6 s au lieu de 0.3. MESURE sur le Jetson : les TF sont publiees ~280 ms
+    # apres l'horodatage des scans, la tolerance par defaut de 0.3 tombait donc
+    # PILE sur le seuil -- d'ou 73 erreurs "Extrapolation Error looking up
+    # target frame" et des buts qui echouaient une fois sur deux. La valeur par
+    # defaut de nav2 est calee sur des machines plus rapides.
+    # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
+    # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
+    # a resserrer si un jour le SLAM publie plus vite.
+    transform_tolerance: 0.6
     source_timeout: 1.0
     base_shift_correction: True
     stop_pub_timeout: 2.0
