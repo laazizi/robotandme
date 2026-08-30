@@ -7,7 +7,10 @@
 #    ./flash_jetson_sd.sh --image <fichier.zip|.img> --device /dev/mmcblkX \
 #                         [--user nvidia] [--pass nvidia] [--host oldjetson] \
 #                         [--ssid aaa] [--wifi-pass 12345678]
-#                         [--verify-quick | --no-verify]
+#                         [--verify-quick | --no-verify] [--configure-only]
+#
+#  --configure-only : ne grave RIEN et refait seulement la preconfiguration sur
+#  une carte deja gravee. Pour corriger sans repasser vingt minutes a graver.
 #    ./flash_jetson_sd.sh ... --dry-run      montre tout, n'ecrit rien
 #
 #  POURQUOI CE SCRIPT EXISTE. L'image SD de NVIDIA lance `oem-config` au premier
@@ -19,7 +22,7 @@
 set -o pipefail
 
 IMG=""; DEV=""; USR="nvidia"; PWD_="nvidia"; HOST="oldjetson"
-SSID=""; WPASS=""; DRY=0; YES=0; VERIFY=1; QUICK=0
+SSID=""; WPASS=""; DRY=0; YES=0; VERIFY=1; QUICK=0; CONFONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --image) IMG="$2"; shift ;;
@@ -32,6 +35,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --no-verify) VERIFY=0 ;;
     --verify-quick) QUICK=1 ;;
+    --configure-only) CONFONLY=1 ;;
     --yes) YES=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "option inconnue : $1" >&2; exit 1 ;;
@@ -77,6 +81,11 @@ if n < 14*1024**3:
     sys.exit(1)
 PY
 
+if [ "$CONFONLY" = "1" ]; then
+  msg "mode --configure-only : aucune gravure, la carte n'est pas effacee"
+fi
+
+if [ "$CONFONLY" = "0" ]; then
 msg "contenu actuel de $DEV (sera DETRUIT)"
 lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DEV" | sed 's/^/   /'
 if [ "$YES" != "1" ] && [ "$DRY" != "1" ]; then
@@ -173,6 +182,7 @@ fi
 
 run "sudo partprobe '$DEV' 2>/dev/null || true"
 sleep 3
+fi   # fin du bloc gravure, saute par --configure-only
 
 # ---------------------------------------------------------------------------
 #  PRECONFIGURATION HORS LIGNE
@@ -391,6 +401,32 @@ fi
 # defaut (voir ci-dessus). Les liens ci-dessous sont donc une simple ceinture de
 # securite, sans effet sur une image standard.
 msg "SSH et decouverte par nom"
+
+# CLES D'HOTE. L'image L4T est livree SANS cles ssh_host_* : c'est oem-config
+# qui les genere au premier demarrage. En le desactivant on supprime le seul
+# mecanisme qui les creait, et sshd refuse de demarrer :
+#     sshd: no hostkeys available -- exiting.
+#     ssh.service: Start request repeated too quickly.
+# La machine demarre alors tout a fait normalement -- ping, mDNS, Wi-Fi, nom
+# d'hote -- mais le port 22 reste ferme. Symptome trompeur : tout fonctionne
+# SAUF l'unique moyen d'entrer sur une carte sans clavier ni ecran.
+if ls "$MNT"/etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+  echo "   cles d'hote deja presentes"
+else
+  echo "   generation des cles d'hote (absentes de l'image)"
+  # `ssh-keygen -A -f <prefixe>` cree d'un coup les types manquants (RSA, ECDSA,
+  # ed25519) AVEC les bons droits, en travaillant sous <prefixe>/etc/ssh au lieu
+  # du /etc/ssh local. Verifie sur OpenSSH 9.6.
+  if sudo ssh-keygen -A -f "$MNT"; then
+    ls "$MNT"/etc/ssh/ssh_host_*_key 2>/dev/null | while read -r k; do
+      echo "     + $(basename "$k")"
+    done
+  else
+    echo "   ECHEC de la generation : sshd ne demarrera pas." >&2
+    echo "   Le corriger a la main :  sudo ssh-keygen -A -f <racine de la carte>" >&2
+  fi
+fi
+
 WANTS="$MNT/etc/systemd/system/multi-user.target.wants"
 sudo mkdir -p "$WANTS"
 for s in ssh.service sshd.service; do
