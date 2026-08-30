@@ -25,6 +25,11 @@ fi
 TT=""
 [ -t 0 ] && [ -t 1 ] && TT="-t"
 
+# PYTHONUNBUFFERED : sans terminal, les outils ros2 ecrits en Python
+# tamponnent leur sortie. `timeout 6 ros2 topic hz` les tuait alors AVANT que
+# le tampon ne soit vide : aucune ligne ne sortait, et mowbot_hz concluait que
+# tous les topics etaient MUETS alors que la pile tournait parfaitement.
 exec docker exec -i $TT \
+  -e PYTHONUNBUFFERED=1 \
   -e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}" \
   "$NOM" bash -c "source /opt/ros/$DISTRO/setup.bash && exec ros2 \"\$@\"" ros2 "$@"

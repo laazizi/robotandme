@@ -112,5 +112,16 @@ mowbot_wait_dev() {
 
 # Frequence d'un topic (vide si muet). $1=topic
 mowbot_hz() {
-  timeout 6 ros2 topic hz "$1" 2>/dev/null | grep -m1 -oP 'average rate: \K[0-9.]+'
+  # `ros2 topic hz` ne produit AUCUNE sortie dans plusieurs contextes (constate
+  # sous Jazzy en conteneur, meme sans relais et avec PYTHONUNBUFFERED) :
+  # mowbot status rapportait alors TOUS les topics comme muets alors que la pile
+  # tournait. On mesure donc avec nodes/hz.py, qui s'abonne pour de vrai.
+  local d="${2:-4}"
+  if [ -n "$MOWBOT_NO_ROS" ]; then
+    # hote sans ROS : la mesure doit se faire DANS le conteneur
+    docker exec "${MOWBOT_CONTAINER:-mowbot_jazzy}" bash -c \
+      "source /opt/ros/${MOWBOT_ROS_DISTRO}/setup.bash && python3 '$MOWBOT_NODES/hz.py' '$1' $d" 2>/dev/null
+  else
+    python3 "$MOWBOT_NODES/hz.py" "$1" "$d" 2>/dev/null
+  fi
 }
