@@ -43,6 +43,7 @@ static int s_spin_requests;    // rotations sur place demandees (impossibles)
 static pid_ctrl_t s_pid_left;      // une boucle de vitesse PAR ROUE arriere
 static pid_ctrl_t s_pid_right;
 static int s_slip_warnings;        // caps incoherents (patinage ou delta faux)
+static int s_tight_warnings;       // virages ou la roue interieure doit reculer
 static ackermann_odom_t s_odom;   // garde delta en plus des champs de kin_odom_t
 static int64_t s_prev_ticks_left;
 static int64_t s_prev_ticks_right;
@@ -111,12 +112,27 @@ void kin_update(float dt, kin_odom_t *odom)
     //   k = voie * tan(delta) / (2 L)      v_int = v (1-k)   v_ext = v (1+k)
     // Forme equivalente a (R -+ voie/2)/R avec R = L/tan(delta), mais SANS
     // division par R : aucune singularite en ligne droite (delta=0 -> k=0).
-    // k reste tres inferieur a 1 (0,239 a la butee avec la geometrie actuelle),
-    // donc la roue interieure ne s'inverse jamais. delta > 0 = virage a GAUCHE,
-    // la roue gauche est donc l'interieure.
-    const float k = TRACK_WIDTH_M * tanf(delta) / (2.0f * WHEELBASE_M);
-    const float target_left  = s_target_v * (1.0f - k);
-    const float target_right = s_target_v * (1.0f + k);
+    // delta > 0 = virage a GAUCHE, la roue gauche est donc l'interieure.
+    //
+    // ATTENTION, k N'EST PAS PETIT sur ce chassis : l'entraxe de robot A vaut
+    // 0,4607 m, ce qui est large. k atteint 1 -- roue interieure a l'ARRET --
+    // des delta = atan(2|x_s|/voie), soit 57 deg pour x_s = -0,36. Au-dela, k > 1 et
+    // la roue interieure doit RECULER pendant que l'exterieure avance. C'est
+    // geometriquement CORRECT (c'est ce qu'exige un roulement sans glissement)
+    // et le materiel le permet -- sign-magnitude, traction_set accepte le
+    // negatif. Ce n'est donc pas bride, mais c'est journalise : y arriver
+    // signifie qu'on est au bout de ce que le chassis sait faire.
+    float target_left, target_right;
+    ackermann_wheel_targets(s_target_v, delta, &target_left, &target_right);
+
+    const float k = TRACK_WIDTH_M * tanf(delta) / (2.0f * STEER_X_M);
+    if (fabsf(k) >= 1.0f && s_target_v != 0.0f && (++s_tight_warnings % 50) == 1) {
+        ESP_LOGW(TAG, "virage extreme (%d fois) : k=%.2f a delta=%+.2f rad, la roue "
+                      "interieure doit RECULER (%+.2f m/s) -- limite du chassis, "
+                      "verifier STEER_MAX_RAD et STEER_X_M",
+                 s_tight_warnings, (double)k, (double)delta,
+                 (double)(s_target_v * (1.0f - fabsf(k))));
+    }
 
     // FEED-FORWARD + PID par ROUE (schema de mowbot, une boucle par moteur).
     // Consigne nulle : moteurs coupes + reset PID, pas de freinage actif.
@@ -145,7 +161,7 @@ void kin_update(float dt, kin_odom_t *odom)
     // 0,35 rad/s (~20 deg/s) est a affiner au bring-up.
     if (fabsf(v_rear) > 0.1f) {
         const float w_wheels = (v_right - v_left) / TRACK_WIDTH_M;
-        const float w_model  = v_rear * tanf(delta) / WHEELBASE_M;
+        const float w_model  = v_rear * tanf(delta) / STEER_X_M;
         if (fabsf(w_wheels - w_model) > 0.35f && (++s_slip_warnings % 50) == 1) {
             ESP_LOGW(TAG, "cap incoherent (%d fois) : roues %+.2f rad/s vs modele "
                           "%+.2f rad/s a delta=%+.2f rad -- patinage, ou braquage "
@@ -226,17 +242,17 @@ void kin_bench_test(void)
     }
 
     // Pas d'action, juste de quoi verifier la geometrie avant de rouler : si
-    // ces pourcentages semblent absurdes, TRACK_WIDTH_M / WHEELBASE_M /
+    // ces pourcentages semblent absurdes, TRACK_WIDTH_M / STEER_X_M /
     // STEER_MAX_RAD sont encore des placeholders.
-    const float k_max = TRACK_WIDTH_M * tanf(STEER_MAX_RAD) / (2.0f * WHEELBASE_M);
+    const float k_max = fabsf(TRACK_WIDTH_M * tanf(STEER_MAX_RAD) / (2.0f * STEER_X_M));
     ESP_LOGW(TAG, "3) differentiel electronique (calcul, aucun mouvement) :");
-    ESP_LOGW(TAG, "   L=%.3f m  voie=%.3f m  delta_max=%.2f rad  ->  k_max=%.3f",
-             (double)WHEELBASE_M, (double)TRACK_WIDTH_M, (double)STEER_MAX_RAD,
-             (double)k_max);
+    ESP_LOGW(TAG, "   x_s=%+.3f m (%s)  voie=%.3f m  delta_max=%.2f rad -> k_max=%.3f",
+             (double)STEER_X_M, STEER_X_M > 0.0f ? "roue DEVANT" : "roue DERRIERE",
+             (double)TRACK_WIDTH_M, (double)STEER_MAX_RAD, (double)k_max);
     ESP_LOGW(TAG, "   a la butee : roue INT a %.0f %%, roue EXT a %.0f %% de la vitesse",
              (double)(100.0f * (1.0f - k_max)), (double)(100.0f * (1.0f + k_max)));
     ESP_LOGW(TAG, "   rayon de braquage min = %.3f m (a donner a nav2)",
-             (double)MIN_TURNING_RADIUS_M);
+             (double)ackermann_min_turning_radius());
 
     ESP_LOGW(TAG, "==== FIN TEST BANC ====");
 }

@@ -18,39 +18,65 @@ bool ackermann_twist_to_cmd(float v, float w, float *v_out, float *delta_out)
         // renvoie false pour que main.c puisse le journaliser : si ce cas revient
         // en boucle, c'est que nav2 n'est pas configure en Ackermann (controleur
         // RPP avec use_rotate_to_heading: false, ou MPPI en motion_model
-        // Ackermann, et un planificateur qui respecte MIN_TURNING_RADIUS_M).
+        // Ackermann, et un planificateur qui respecte ackermann_min_turning_radius()).
+        // Pre-braquage du bon cote : avec v > 0, tan(delta) = w x_s / v, donc
+        // le signe voulu est celui de w*x_s -- l'oppose de w si la roue
+        // directrice est a l'arriere.
         *v_out = 0.0f;
-        if (w > W_EPS_RADPS)       *delta_out =  STEER_MAX_RAD;
-        else if (w < -W_EPS_RADPS) *delta_out = -STEER_MAX_RAD;
-        else                       *delta_out =  0.0f;
+        if (fabsf(w) > W_EPS_RADPS) *delta_out = copysignf(STEER_MAX_RAD, w * STEER_X_M);
+        else                        *delta_out = 0.0f;
         return fabsf(w) < W_EPS_RADPS;
     }
 
-    // Modele bicyclette inverse : w = v tan(delta) / L  =>  delta = atan(w L / v).
+    // Modele bicyclette inverse : w = v tan(delta)/x_s => delta = atan(w x_s/v).
+    // x_s est SIGNE (STEER_X_M) : une roue directrice a l'arriere donne un
+    // braquage de signe oppose, ce qui est physiquement juste.
     //
     // MARCHE ARRIERE : la formule reste JUSTE telle quelle. Avec v < 0 et w > 0
     // (nav2 demande de tourner dans le sens trigo en reculant), atan donne
     // delta < 0 : roues braquees a droite. Or en reculant roues a droite, le nez
     // part bien a gauche -- c'est ce que fait une voiture en creneau. Ne pas
     // "corriger" le signe pour la marche arriere, ce serait faux.
-    float delta = atanf(w * WHEELBASE_M / v);
+    float delta = atanf(w * STEER_X_M / v);
 
     // Au-dela du braquage max on GARDE v et on sature delta : la trajectoire
     // sera plus large que demandee. Nav2 ne doit jamais demander une courbure
-    // superieure a 1/MIN_TURNING_RADIUS_M ; si cela arrive, c'est un probleme de
+    // superieure a 1/ackermann_min_turning_radius() ; si cela arrive, c'est un probleme de
     // configuration cote SBC, pas de firmware.
     *delta_out = clampf(delta, -STEER_MAX_RAD, STEER_MAX_RAD);
     *v_out = clampf(v, -MAX_SPEED_MPS, MAX_SPEED_MPS);
     return true;
 }
 
+void ackermann_wheel_targets(float v, float delta, float *v_left, float *v_right)
+{
+    // k = voie*tan(delta)/(2*x_s). Forme equivalente a (R -+ voie/2)/R avec
+    // R = x_s/tan(delta), mais sans division par R : pas de singularite en
+    // ligne droite. x_s SIGNE, donc la roue interieure change de cote selon
+    // que la roue directrice est devant ou derriere.
+    const float k = TRACK_WIDTH_M * tanf(delta) / (2.0f * STEER_X_M);
+    float g = v * (1.0f - k);
+    float d = v * (1.0f + k);
+
+    // Saturation a courbure constante : on divise les deux par le meme facteur.
+    const float pire = fabsf(g) > fabsf(d) ? fabsf(g) : fabsf(d);
+    if (pire > MAX_SPEED_MPS) {
+        const float f = MAX_SPEED_MPS / pire;
+        g *= f;
+        d *= f;
+    }
+
+    *v_left = g;
+    *v_right = d;
+}
+
 void ackermann_odometry_update(ackermann_odom_t *o, float d_rear_m,
                                float delta, float dt)
 {
-    // Rotation du pas : d * tan(delta) / L. Le signe de d porte la marche
-    // arriere, celui de delta le cote de braquage ; leur produit donne le bon
-    // sens de rotation dans tous les cas (voir ackermann_twist_to_cmd).
-    float d_theta = d_rear_m * tanf(delta) / WHEELBASE_M;
+    // Rotation du pas : d * tan(delta) / x_s. Le signe de d porte la marche
+    // arriere, celui de delta le cote de braquage, celui de x_s la position de
+    // la roue directrice ; leur produit donne le bon sens dans tous les cas.
+    float d_theta = d_rear_m * tanf(delta) / STEER_X_M;
 
     // Integration au point milieu : exacte au 2e ordre, suffisante a 50 Hz.
     // Meme schema que l'odometrie diffdrive de mowbot.

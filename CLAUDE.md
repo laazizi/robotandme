@@ -93,12 +93,41 @@ Côté SBC : voir `robot/README.md` (agent docker, EKF, nav2, teleop).
 
 ## Ackermann (`ackerbot_p4`) — décisions et état
 
-**État : compile, jamais flashé ni câblé.** Toute la géométrie de
-`controllers/ackerbot_p4/main/robot.h` est en placeholders.
+**État : compile, jamais flashé ni câblé.**
 
+**Géométrie identique à robot A** (utilisateur, 2 septembre 2026) : même
+châssis, mêmes roues, mêmes moteurs — seules les roues folles laissent place à
+une roue directrice. `TRACK_WIDTH_M` (0,4607), `WHEEL_RADIUS_M` (0,0753) et
+`TICKS_PER_WHEEL_REV` (2560) sont donc les valeurs **calibrées au sol** de
+robot A, plus des placeholders. Restent deux inconnues, et elles ne peuvent pas
+être héritées parce qu'un diffdrive n'en a pas besoin et ne les a jamais
+mesurées : **`WHEELBASE_M`** (essieu moteur → contact de la roue directrice) et
+**`STEER_MAX_RAD`** (butée mécanique).
+
+**Mesuré et validé au banc le 3 septembre 2026** : `STEER_X_M = −0,36 m` (roue
+directrice **derrière** l'essieu moteur — 20 cm derrière le lidar, lui-même à
+−0,16 m). Servo sur **GPIO 14, qui FONCTIONNE** : résultat contre-intuitif, ses
+voisines 5, 6, 15 et 16 sont mortes et j'en avais déduit à tort que 14 le
+serait. Ne pas extrapoler la liste des broches mortes aux voisines.
+Encodeurs et moteurs vérifiés roue par roue : aucune permutation de canaux,
+les deux comptent + en avant, donc `MOTOR_L/R_INVERT=0`, `ENC_L_INVERT=0` et
+`ENC_R_INVERT=1` sont justes. À commande identique la roue droite tourne
+**5,1 %** plus vite que la gauche — d'où un PID par roue, pas un par essieu.
+
+- **En réalité un TRICYCLE, pas un Ackermann** : **une seule** roue directrice
+  (utilisateur, 2 septembre 2026), en attendant d'en avoir deux. Conséquence
+  favorable : le modèle bicyclette devient **exact** et non approché — δ est
+  l'angle physique de la roue, pas celui d'une roue virtuelle au milieu d'un
+  train avant. Passer à deux roues plus tard ne changera **rien au firmware**
+  tant qu'un servo unique pilote un trapèze de direction ; il faudrait le
+  modifier seulement avec deux servos. Les vraies limites du tricycle sont
+  mécaniques : renversement en virage et enfoncement dans l'herbe (tout le
+  poids avant sur un seul point de contact).
 - **Servo RC pour la direction** (PWM 50 Hz, LEDC TIMER_1 14 bits) : asservi en
   position par construction, donc aucune boucle à écrire ; mais **sans retour**,
   l'odométrie utilise l'angle *commandé* — sa première source d'erreur.
+- **Course de direction 30 à 45°** (utilisateur) : donc **pas** de rotation sur
+  place, et la config nav2 dédiée ci-dessous est bien obligatoire.
 - **Deux moteurs arrière, un par roue, sur les DEUX canaux du MDD10A** (LEDC
   TIMER_0, 20 kHz, canaux 0 et 1), un PID par roue ; encodeurs PCNT sur les deux
   roues arrière, distance = moyenne des deux. Décision du 2 septembre 2026 : on
@@ -109,7 +138,14 @@ Côté SBC : voir `robot/README.md` (agent docker, EKF, nav2, teleop).
   mécanique : `k = voie·tan(δ)/(2L)`, `v_int = v(1−k)`, `v_ext = v(1+k)`. Cette
   forme est équivalente à `(R∓voie/2)/R` mais **sans division par R**, donc sans
   singularité en ligne droite. Commander les deux roues à la même vitesse les
-  ferait se battre : ±24 % de glissement à la butée avec la géométrie actuelle.
+  ferait se battre.
+- **`k` n'est pas petit sur ce châssis**, et j'ai d'abord écrit le contraire en
+  me fiant à un placeholder de voie de 0,25 m. L'entraxe réel de robot A vaut
+  **0,4607 m** : `k` atteint **1** — roue intérieure à l'arrêt — dès
+  `δ = atan(2|x_s|/voie)`, soit **57,4°** pour `x_s = −0,36 m`. Au-delà, la roue
+  intérieure doit **reculer** pendant que l'autre avance. C'est géométriquement
+  correct et le matériel l'accepte (sign-magnitude), donc ce n'est pas bridé,
+  mais c'est journalisé : y arriver signifie qu'on est au bout du châssis.
 - **Recoupement de cap, gratuit et exact** : `w_roues = (v_d−v_g)/voie` contre
   `w_modèle = v·tan(δ)/L`. Sans patinage les deux sont identiques au bit près
   (vérifié sur 2 006 cas, marche arrière comprise, écart max 9e−16 rad/s), donc
