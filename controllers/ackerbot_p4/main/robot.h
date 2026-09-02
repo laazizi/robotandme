@@ -113,6 +113,15 @@
 #define SERVO_CENTER_US      1500
 #define SERVO_MIN_US         1000    // butee ELECTRIQUE du servo, pas la mecanique
 #define SERVO_MAX_US         2000
+// PIEGE : cette formule envoie TOUJOURS +-500 us a STEER_MAX_RAD, quel qu'il
+// soit. Or sur un servo standard 180 deg / 500-2500 us, 500 us = 45 deg
+// EXACTEMENT. Le mapping n'est donc juste QUE pour STEER_MAX_RAD = 45 deg --
+// verifie au banc le 03/09/2026 (balayage conforme). Si l'angle max change un
+// jour, il faut remplacer cette formule par le GAIN PHYSIQUE du servo
+// (~636 us/rad pour 180 deg sur 2000 us) et recalculer SERVO_MIN/MAX_US, sinon
+// la roue restera a 45 deg pendant que l'odometrie croira a l'angle configure.
+// Decision utilisateur du 03/09/2026 : 45 deg, pour que la roue interieure ne
+// recule jamais (seuil a 57,4 deg avec cette geometrie).
 #define SERVO_US_PER_RAD     (500.0f / STEER_MAX_RAD)
 #define SERVO_INVERT         0       // 1 si braquer a gauche tourne les roues a droite
 
