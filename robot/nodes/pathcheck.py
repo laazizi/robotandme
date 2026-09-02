@@ -2,6 +2,7 @@ import math, time
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from rclpy.action import ActionClient
 from nav2_msgs.action import ComputePathToPose
 from nav_msgs.msg import OccupancyGrid
@@ -12,7 +13,16 @@ class C(Node):
     def __init__(s):
         super().__init__('pathcheck')
         s.grid=None
-        s.create_subscription(OccupancyGrid,'/global_costmap/costmap',s.cb,10)
+        # QoS TRANSIENT_LOCAL : un costmap se publie comme un topic LATCHE.
+        # Avec la QoS par defaut (VOLATILE) et always_send_full_costmap: False,
+        # la grille complete n'est envoyee qu'une fois au demarrage de nav2 : un
+        # abonne qui arrive apres ne recoit RIEN, et cet outil affichait
+        # "pas de costmap globale" alors que nav2 tournait parfaitement.
+        s.create_subscription(
+            OccupancyGrid, '/global_costmap/costmap', s.cb,
+            QoSProfile(depth=1,
+                       reliability=ReliabilityPolicy.RELIABLE,
+                       durability=DurabilityPolicy.TRANSIENT_LOCAL))
         s.buf=Buffer(); TransformListener(s.buf,s)
         s.ac=ActionClient(s,ComputePathToPose,'compute_path_to_pose')
     def cb(s,m): s.grid=m
