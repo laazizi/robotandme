@@ -97,7 +97,9 @@ cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
 PLUGIN_SED=""
 if [ "$ROS_D" = "humble" ]; then
   PLUGIN_SED="-e s|nav2_navfn_planner::|nav2_navfn_planner/|g
-              -e s|nav2_behaviors::|nav2_behaviors/|g"
+              -e s|nav2_behaviors::|nav2_behaviors/|g
+              -e s|nav2_smac_planner::|nav2_smac_planner/|g
+              -e s|nav2_regulated_pure_pursuit_controller::|nav2_regulated_pure_pursuit_controller/|g"
 fi
 
 for f in "$SRC"/config/*; do
@@ -123,7 +125,9 @@ for f in "$SRC"/config/*; do
         rm -f "/tmp/mowbot_cfg_$b"
         continue
       fi ;;
-    *.urdf|*.xacro)
+    *.urdf|*.xacro|*.xml)
+      # *.xml ajoute le 03/09/2026 : les arbres de comportement (bt_*.xml) n'etaient
+      # PAS valides, alors que c'est precisement eux qui ont ete casses trois fois.
       if ! python3 -c "import sys,xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "/tmp/mowbot_cfg_$b" 2>/dev/null; then
         echo "   ERREUR : $b n'est pas un XML valide, DEPLOIEMENT ANNULE" >&2
         python3 -c "import sys,xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" "/tmp/mowbot_cfg_$b" 2>&1 | tail -3 >&2

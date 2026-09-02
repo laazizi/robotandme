@@ -13,5 +13,10 @@ for geo in "-0.36f:ackerbot_p4 (roue DERRIERE)" "+0.36f:variante roue DEVANT"; d
   /tmp/test_ackermann || echec=1
   echo
 done
+echo "=============================================================="
+echo "  geometrie nav2 (robot/config/ackerbot_geometry.env) a jour avec robot.h ?"
+echo "=============================================================="
+python3 ../../../../robot/bin/gen_ackerbot_geometry.py --check || echec=1
+echo
 [ "$echec" -eq 0 ] && echo "### LES DEUX GEOMETRIES PASSENT" || echo "### AU MOINS UNE GEOMETRIE ECHOUE"
 exit "$echec"

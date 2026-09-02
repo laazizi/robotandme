@@ -84,9 +84,18 @@ fi
 # Defaut B par SECURITE : des vitesses trop basses ne cassent rien, l'inverse si.
 ROBOT="$(printf '%s' "${ROBOT:-b}" | tr 'A-Z' 'a-z')"
 
+# --- ACKERBOT : tricycle a roue directrice, fichier et cles DIFFERENTS -------
+# Ce robot ne pivote pas sur place : DWB et NavFn lui sont interdits. Son profil
+# vit dans un script a part (nav_profile_ackerbot.sh) pour ne PAS toucher au
+# bloc A/B ci-dessous, qui est valide au sol. Il fixe PARAMS ou refuse de lancer.
+if [ "$ROBOT" = "ackerbot" ]; then
+  . "$MOWBOT_BIN/nav_profile_ackerbot.sh" || { mowbot_log "profil ackerbot refuse, arret"; exit 1; }
+  SPEEDS=""   # le bloc A/B ci-dessous est neutralise pour ce robot
+else
 PARAMS="$MOWBOT_CONFIG/nav2_params.yaml"
 SPEEDS="$MOWBOT_CONFIG/speeds.env"
-if [ -f "$SPEEDS" ]; then
+fi
+if [ -n "$SPEEDS" ] && [ -f "$SPEEDS" ]; then
   . "$SPEEDS"
   P="$(printf '%s' "$ROBOT" | tr 'a-z' 'A-Z')"
   GEN="$MOWBOT_LOGS/nav2_params_$ROBOT.yaml"

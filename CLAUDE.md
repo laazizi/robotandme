@@ -157,11 +157,27 @@ les deux comptent + en avant, donc `MOTOR_L/R_INVERT=0`, `ENC_L_INVERT=0` et
   PC). Rotation sur place refusée proprement : v=0, pré-braquage, journal.
 - **Rayon de braquage minimal dérivé** : `L/tan(δmax)`, à fournir à nav2 ; ne
   jamais le saisir à la main côté SBC.
-- **nav2 doit changer pour ce robot** : `Spin`, `RotateToGoal`, `RotationShim`
-  et DWB supposent une rotation sur place. Il faut un planificateur qui respecte
-  le rayon (SmacPlannerHybrid) et un contrôleur RPP sans rotate-to-heading ou
-  MPPI en modèle Ackermann. **Ne pas toucher la config nav2 de robot A** : un
-  fichier de paramètres séparé.
+- **nav2 dédié — ÉCRIT le 3 septembre 2026, jamais lancé sur le robot** :
+  `robot/config/nav2_params_ackerbot.yaml` (dérivé de celui de robot A pour
+  garder ses réglages mesurés ; seuls changent RPP sans rotate-to-heading avec
+  marche arrière, SmacPlannerHybrid en Reeds-Shepp, plus de `spin`, empreinte à
+  −0,40), `bt_ackerbot.xml` (sans `Spin`), `bin/nav_profile_ackerbot.sh`
+  (profil `MOWBOT_ROBOT=ackerbot`). Le rayon de braquage minimal est **dérivé**
+  de `robot.h` par `bin/gen_ackerbot_geometry.py` → `config/ackerbot_geometry.env`,
+  jamais saisi ; sans ce fichier le lancement est refusé. Validé le 3 septembre :
+  YAML/XML, injection des valeurs par le profil, refus si géométrie absente, et
+  **`configure` réel des quatre serveurs** (planner, controller, behavior,
+  bt_navigator) **dans le conteneur de la Jetson**, en domaine DDS isolé
+  (`ROS_DOMAIN_ID=42`) pendant que le nav2 du robot tournait — nav2 n'est pas
+  installé sur le PC. Smac Hybrid se configure en **24 s** sur la NX avec
+  `lookup_table_size: 10.0` (84 s à 20.0, le défaut : table 500×500×64 caps) ;
+  le `lifecycle_manager` n'a aucun délai de configuration, seul `bond_timeout`
+  joue après activation. Leçon de méthode : ne jamais `pkill -f` un motif
+  présent dans la ligne de commande du shell courant — un script copié, pas un
+  heredoc (déjà dans la mémoire du projet, redécouvert deux fois ce soir). **La config de robot A n'a pas
+  été touchée.** Pourquoi tout ça : `Spin`, `RotateToGoal`, `RotationShim` et
+  DWB supposent une rotation sur place ; à chaque demande le firmware refuse et
+  braque à fond à l'arrêt, puis maintient — pire cas pour un servo de 10 kg·cm.
 - **`PIN_SERVO 45` est un CANDIDAT, pas une broche validée.** C'est le seul
   signal ajouté par ce robot, donc la seule broche non héritée de robot A.
   Raisonnement : inutilisée par tout contrôleur, même header que GPIO 47, jamais
@@ -188,5 +204,11 @@ les deux comptent + en avant, donc `MOTOR_L/R_INVERT=0`, `ENC_L_INVERT=0` et
 - Coverage planning (opennav_coverage / Fields2Cover).
 - Contrôle lame + capteurs de sécurité (soulèvement, bumper).
 - nav2 (robot A : en cours, voir `robot/config/nav2_params.yaml`).
-- Ackermann : mesurer la géométrie, calibrer le servo, câbler, bring-up au banc,
-  puis config nav2 dédiée (voir section Ackermann).
+- nav2 Ackermann : écrit, **à éprouver au sol** (`MOWBOT_ROBOT=ackerbot` dans
+  `~/mowbot/robot_profile.env`, puis `mowbot nav`). Premier essai en
+  téléopération d'abord, puis un but proche sans obstacle.
+- Ackermann : `STEER_MAX_RAD` déduit (45°) reste à **confirmer au rapporteur**
+  en butée ; mesurer la masse sur la roue directrice (couple servo 10 kg·cm,
+  limite vers 6 kg) ; passer à deux roues directrices si le tricycle se
+  renverse ou s'enfonce (aucun changement firmware avec un servo unique et un
+  trapèze).

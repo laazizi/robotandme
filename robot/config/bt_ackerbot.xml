@@ -1,0 +1,80 @@
+<!--
+  Arbre de comportement d'ACKERBOT (tricycle a roue directrice, sans rotation
+  sur place). COPIE de bt_mowbot.xml avec UN SEUL changement de plus : la
+  recuperation Spin (rotation sur place) est SUPPRIMEE.
+  Pourquoi : ce robot ne peut pas pivoter sur place. Quand nav2 le lui demande,
+  le firmware refuse et braque a fond A L'ARRET, puis maintient : c'est le pire
+  cas de couple et de chauffe pour un servo RC de 10 kg.cm. Une recuperation
+  qui grille l'actionneur n'en est pas une.
+  Reste : effacer les costmaps (gratuit), RECULER (Reeds-Shepp sait planifier
+  en marche arriere, le firmware la gere), attendre.
+  Designe par default_nav_to_pose_bt_xml dans nav2_params_ackerbot.yaml.
+  NB : jamais de double tiret dans un commentaire XML, le fichier devient
+  invalide (erreur deja faite trois fois sur ce projet).
+-->
+
+<!--
+  This Behavior Tree replans the global path periodically at 1 Hz and it also has
+  recovery actions specific to planning / control as well as general system issues.
+  This will be continuous if a kinematically valid planner is selected.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+            <Sequence>
+              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <Sequence>
+            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+          </Sequence>
+        </RecoveryNode>
+      </PipelineSequence>
+      <Sequence>
+        <Fallback>
+          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+        </Fallback>
+        <ReactiveFallback name="RecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <!-- ACKERBOT : pas de Spin ici, voir l'en-tete du fichier.
+                 ORDRE MODIFIE PAR RAPPORT A NAV2. L'amont essaie, dans l'ordre :
+                 effacer les costmaps, TOURNER SUR PLACE de 90 deg, ATTENDRE 5 s,
+                 et seulement en QUATRIEME reculer.
+                 Pour ce robot coince contre un obstacle, les deux du milieu sont
+                 mauvaises :
+                   . le contour n'est PAS circulaire (0.54 x 0.50 m) : tourner sur
+                     place balaie ses coins vers l'obstacle, donc la rotation est
+                     refusee ou aggrave la situation ;
+                   . attendre ne sert a rien face a un obstacle immobile.
+                 Reculer est la seule action qui retablisse une marge PHYSIQUE :
+                 elle passe donc en DEUXIEME.
+                 L'effacement des costmaps reste en premier : gratuit, instantane,
+                 sans aucun mouvement, et suffisant quand le blocage vient d'une
+                 trace perimee plutot que d'un obstacle reel.
+                 MESURE avant ce changement : 8 "Goal failed" pour UN SEUL "BackUp"
+                 dans le journal, le robot restait coince sans jamais reculer. -->
+            <Sequence name="ClearingActions">
+              <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+            <Wait wait_duration="5.0"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

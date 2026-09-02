@@ -1,0 +1,569 @@
+# nav2 pour ACKERBOT : le chassis de robot A converti en TRICYCLE (roue
+# directrice a servo, DERRIERE l'essieu moteur, x_s = -0.36 m).
+#
+# DERIVE de nav2_params.yaml (robot A) le 03/09/2026 : tout ce qui a ete regle
+# par des mesures y est conserve a l'identique (costmaps, delais, inflation,
+# collision_monitor). SEULEMENT ce qui suppose une rotation sur place change :
+#   . controleur  DWB -> Regulated Pure Pursuit, sans rotate-to-heading,
+#                 marche arriere autorisee ;
+#   . planificateur NavFn -> SmacPlannerHybrid, Reeds-Shepp, qui RESPECTE le
+#                 rayon de braquage minimal ;
+#   . comportements : plus de "spin" ; arbre bt_ackerbot.xml sans Spin ;
+#   . empreinte : 13 cm plus longue vers l'arriere (roue directrice a -0.36).
+# POURQUOI : ce robot ne pivote pas sur place. Quand nav2 le lui demande, le
+# firmware refuse et braque a fond A L'ARRET puis maintient -- pire cas de
+# couple et de chauffe pour un servo RC de 10 kg.cm.
+#
+# VALEURS DERIVEES DU FIRMWARE, jamais saisies a la main (regle du CLAUDE.md) :
+# minimum_turning_radius, regulated_linear_scaling_min_radius et la rotation
+# max viennent de config/ackerbot_geometry.env, GENERE depuis robot.h par
+# bin/gen_ackerbot_geometry.py et injecte au lancement par
+# bin/nav_profile_ackerbot.sh. Les nombres ecrits ici ne sont que des valeurs
+# de repli lisibles ; c'est le profil qui fait foi.
+# Ne PAS toucher nav2_params.yaml (robot A) pour ce robot : fichiers separes.
+
+bt_navigator:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odometry/filtered
+    # CES DEUX VALEURS SONT LIEES, et les monter ensemble est indispensable.
+    # default_server_timeout est en MILLISECONDES (defaut nav2 : 20), et le code
+    # de nav2_behavior_tree l'ECRETE :
+    #     max_timeout_ = bt_loop_duration * 0.5
+    # Avec bt_loop_duration a 10 ms, le delai d'attente d'un serveur d'action
+    # etait donc plafonne a CINQ MILLISECONDES. Sur cette machine, ou l'on
+    # mesure regulierement de la contention, c'est intenable : nav2 abandonnait
+    # le but avant meme d'avoir commence, avec
+    #   Timed out while waiting for action server to acknowledge goal request
+    # 16 fois, et des buts qui echouaient en 0,1 s. Monter le seul
+    # default_server_timeout n'aurait rien change a cause de l'ecretage.
+    # bt_loop_duration a 100 ms = arbre cadence a 10 Hz, comme le controleur.
+    # A 0,30 m/s cela represente 3 cm de trajet entre deux evaluations : sans
+    # consequence pour une tondeuse, et cela divise par dix le cout de parcours
+    # de l'arbre. Le delai effectif devient 50 ms, soit 2,5 fois le defaut nav2.
+    bt_loop_duration: 100
+    default_server_timeout: 50
+    # NOTRE arbre de comportement, et non celui de nav2. Un seul changement :
+    # l'ordre des actions de degagement. L'amont essaie d'abord d'effacer les
+    # costmaps, PUIS DE TOURNER SUR PLACE, PUIS D'ATTENDRE 5 s, et ne recule
+    # qu'en quatrieme. Sur ce chassis non circulaire (0.54 x 0.50 m), tourner
+    # sur place contre un obstacle balaie les coins du contour dedans : la
+    # rotation est refusee et le robot reste coince. Mesure : 8 "Goal failed"
+    # pour UN SEUL "BackUp" dans le journal.
+    # Reculer passe donc en deuxieme, juste apres l'effacement des costmaps qui
+    # est gratuit et sans mouvement. Details dans config/bt_mowbot.xml.
+    # __HOME__ est substitue par install.sh : les YAML n'acceptent pas de
+    # variable d'environnement, et le chemin doit etre valide DANS le conteneur
+    # (le code est monte au meme chemin dedans et dehors).
+    default_nav_to_pose_bt_xml: "__HOME__/mowbot/config/bt_ackerbot.xml"
+
+controller_server:
+  ros__parameters:
+    # 10 Hz et non 20 : a 0.30 m/s le robot avance 3 cm entre deux cycles, ce
+    # qui reste tres fin devant son gabarit. Sur une Raspberry Pi 4, 20 Hz
+    # doublait inutilement la charge du controleur -- or c'est la saturation
+    # (charge 24 sur 4 coeurs) qui faisait rejeter les messages dans RViz.
+    controller_frequency: 10.0
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 3.0
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.05
+      movement_time_allowance: 30.0
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      # robot de 58 cm de long : viser 8 cm etait irrealiste (le dernier
+      # centimetre prenait plus longtemps que tout le trajet, a 0.048 m/s).
+      xy_goal_tolerance: 0.12
+      # 3.15 rad, soit PLUS DE 180 DEGRES : autant dire "le cap n'importe pas".
+      # A 0.20 rad (11,5 deg) le robot devait finir aligne sur le cap demande, donc
+      # il PIVOTAIT SUR PLACE a chaque arrivee -- jusqu'a 3 s par point a
+      # max_vel_theta 1.0 rad/s, pour une orientation dont on n'a le plus souvent
+      # rien a faire sur un point de passage.
+      #
+      # QUAND LE REMETTRE SERRE : si un point exige une orientation precise --
+      # aborder une rangee de tonte dans le bon sens, se presenter face a une
+      # station de charge, franchir un passage etroit. Le cap de chaque point
+      # reste transmis dans le but : c'est seulement le CONTROLE d'arrivee qui
+      # ne l'exige plus.
+      # Variante plus explicite si l'on veut ignorer le cap par construction :
+      #   plugin: "nav2_controller::PositionGoalChecker"   (ne verifie que x, y)
+      # On garde SimpleGoalChecker : un seul nombre a changer pour revenir en
+      # arriere, contre un changement de greffon.
+      yaw_goal_tolerance: 3.15
+      stateful: True
+    # ==========================================================
+    #  CONTROLEUR : Regulated Pure Pursuit (RPP)
+    #
+    #  DWB (robot A) echantillonne des couples (v, w) dont des ROTATIONS PURES,
+    #  et son critere RotateToGoal aligne le cap sur place a l'arrivee : deux
+    #  choses qu'un tricycle ne sait pas faire. RPP est un suiveur de chemin a
+    #  courbure bornee : il ne demande jamais w sans v.
+    #  Le prix, deja constate sur robot A : RPP ne CONTOURNE pas de lui-meme un
+    #  obstacle apparu sur le chemin, il s'arrete et attend une replanification
+    #  (l'arbre replanifie a 1 Hz, et Smac trouve un autre chemin).
+    #  Alternative si ce comportement gene : MPPI en motion_model "Ackermann"
+    #  (installe dans le conteneur), plus lourd en CPU.
+    #
+    #  base_link est au MILIEU DE L'ESSIEU MOTEUR, qui est ici l'essieu AVANT
+    #  (la roue directrice est derriere). C'est le bon point de reference pour
+    #  RPP : c'est lui qui suit le chemin avec la courbure w/v, le firmware
+    #  derive l'angle de braquage de cette courbure (signe compris).
+    # ==========================================================
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      # Vitesse de croisiere : celle de robot A, memes moteurs (profil ACKERBOT).
+      desired_linear_vel: 0.30
+      # Le point de poursuite doit tomber DEVANT le robot : l'avant du chassis
+      # est a +0.22 m de base_link. Sous 0.35 il tombait DANS le robot sur
+      # robot A -> braquages permanents, oscillations. Mis a l'echelle de la
+      # vitesse : 0.30 m/s x 1.5 s = 0.45 m, borne dans [0.35, 0.70].
+      lookahead_dist: 0.45
+      min_lookahead_dist: 0.35
+      max_lookahead_dist: 0.70
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: true
+      # 1.0 s : meme valeur que partout ailleurs dans ce fichier, MESUREE sur le
+      # Jetson (TF publiees ~280 ms apres l'horodatage des scans, a-coups sous
+      # charge). Voir le commentaire long dans le costmap local.
+      transform_tolerance: 1.0
+      # approche finale : ne pas ramper ; ces moteurs decollent vers 0.08 m/s
+      min_approach_linear_velocity: 0.06
+      approach_velocity_scaling_dist: 0.40
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      # REGULATION EN COURBE : RPP ralentit quand le rayon instantane passe sous
+      # regulated_linear_scaling_min_radius. On lui donne LE rayon de braquage
+      # minimal du robot (derive, injecte par le profil) : en virage serre la
+      # roue exterieure demande 164 % de la vitesse d'essieu, et le firmware
+      # sature en preservant la courbure -- autant que nav2 ralentisse AVANT.
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.36
+      regulated_linear_scaling_min_speed: 0.10
+      use_cost_regulated_linear_velocity_scaling: false
+      use_fixed_curvature_lookahead: false
+      curvature_lookahead_dist: 0.35
+      # LES DEUX LIGNES QUI FONT DE CE FICHIER UN FICHIER ACKERMANN.
+      # use_rotate_to_heading DOIT etre false : ce robot ne pivote pas.
+      # allow_reversing DOIT etre true : Reeds-Shepp planifie des segments en
+      # marche arriere, et le firmware gere le signe (delta = atan(w x_s / v)
+      # reste juste pour v < 0). RPP REFUSE que les deux soient true a la fois
+      # ("Both use_rotate_to_heading and allow_reversing parameter cannot be
+      # set to true", message dans la bibliotheque installee).
+      use_rotate_to_heading: false
+      allow_reversing: true
+      # inutilises tant que use_rotate_to_heading est false, gardes pour lisibilite
+      rotate_to_heading_min_angle: 0.785
+      rotate_to_heading_angular_vel: 0.5
+      max_angular_accel: 2.0
+      max_robot_pose_search_dist: 5.0
+      stateful: true
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      # RETOUR A 5 Hz. Je l avais monte a 10 pour l aligner sur
+      # controller_frequency, sur un raisonnement -- jamais sur une mesure. Cela
+      # double le travail de raytracing du costmap, et le controleur BLOQUE sur le
+      # verrou du costmap pendant sa mise a jour.
+      # Symptome constate ensuite : le controleur tournait a 2,17 a 5,76 Hz au lieu
+      # de 10, tout en n utilisant que 43 % d UN coeur sur six -- donc il ATTENDAIT,
+      # il ne calculait pas. La machine avait 65 % d inactivite (213 % sur 600 %).
+      # 5 Hz reste deux fois la cadence du lidar (2,5 scans par mise a jour) : on ne
+      # perd aucune information reelle, le lidar ne fournit rien de plus vite.
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 3
+      height: 3
+      # 4 cm au lieu de 2 : QUATRE fois moins de cellules a inflater et a
+      # parcourir a chaque cycle. C'est le plus gros gain de charge, et 4 cm
+      # reste fin face a un robot de 46 cm d'entraxe.
+      resolution: 0.04
+      # Contour REEL (base_link = milieu de l'essieu), releve sur photo :
+      #   - disque bois rayon 0.22
+      #   - point le plus large = les PNEUS, +/-0.26 (entraxe 0.48 + largeur roue)
+      #   - bras arriere portant la ROUE DIRECTRICE : contact a -0.36, rayon
+      #     ~0.032 -> arriere de l'empreinte a -0.40 (etait -0.27 avec la
+      #     roulette). 13 cm de plus : IMPORTANT en marche arriere, que
+      #     Reeds-Shepp utilise, et parce qu'en direction ARRIERE c'est la
+      #     queue qui balaie en virage.
+      # Un robot_radius unique devrait couvrir 0.27 partout, soit 5 cm de
+      # bourrelet inutile tout autour -> passages refuses sans raison. Utile
+      # aussi maintenant que la marche arriere est autorisee : la languette
+      # est protegee sans elargir l'arriere.
+      # LARGEUR RAMENEE de 0.26 a 0.25 (demande utilisateur, 1 cm).
+      # Le bord exterieur des roues est a ±0.2529 m (demi-entraxe calibre
+      # 0.23035 + demi-largeur de roue 0.0225). Avec l'ancienne valeur, le
+      # contour effectif atteignait ±0.270 padding compris : un obstacle a 1 cm
+      # de la roue tombait DANS l'empreinte, et DWB rejetait les 860
+      # trajectoires ("ObstacleFootprint/Trajectory Hits Obstacle", 540 fois
+      # dans le journal). A ±0.250 + 0.010 de padding, le contour s'arrete a
+      # 0.260 et laisse 3 mm devant un obstacle a 1 cm.
+      # ATTENTION : 3 mm, c'est peu. Une erreur de localisation d'un centimetre
+      # suffit alors a ce que la roue touche VRAIMENT. Cette marge a ete reduite
+      # sciemment ; ne pas la rogner davantage sans y repenser.
+      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.40, 0.08], [-0.40, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
+      # 1 cm (etait 2) : marge ajoutee TOUT AUTOUR du contour. Le contour est
+      # deja releve au reel ; 2 cm de plus rendaient des passages justes
+      # inexecutables -- le planificateur global les jugeait franchissables et
+      # le controleur refusait ensuite d'y aller.
+      footprint_padding: 0.01
+      # PAS de static_layer ici, volontairement. Le costmap LOCAL doit refleter
+      # ce que le lidar voit MAINTENANT. En y superposant la carte SLAM, il
+      # heritait de tous les faux echos accumules dans la carte -- et ceux-la
+      # ne s'effacent jamais par balayage laser, contrairement aux obstacles
+      # observes. Constat : le lidar voyait l'obstacle a 0.38 m alors que la
+      # carte gardait une cellule occupee a 0.26 m, pile sur le bord du
+      # footprint -> "No valid trajectories out of 860", blocage total.
+      # La carte statique reste utilisee par le costmap GLOBAL, pour planifier.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          sensor_frame: laser_link
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          max_obstacle_height: 2.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.05
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.05
+          inf_is_valid: False
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # LOCAL = execution. Reste bas (5 cm) : c'est cette couche qui faisait
+        # refuser des passages franchissables ("ca bloque pour rien"). La
+        # securite reelle est assuree par le footprint, qui est exact.
+        #
+        # NAV2 SE PLAINT ICI, ET C'EST NORMAL. A chaque configuration il ecrit :
+        #   The configured inflation radius (0.050) is smaller than the computed
+        #   inscribed radius (0.230) of your footprint
+        # Ce message suppose la convention INVERSE de la notre : robot traite
+        # comme un point, et inflation >= rayon inscrit chargee de representer sa
+        # taille. C'est ce qu'exige le critere BaseObstacle, que nous n'utilisons
+        # PAS (voir critics, plus haut : ObstacleFootprint).
+        # ObstacleFootprint teste le contour complet contre le costmap. Monter
+        # l'inflation a 0.23 compterait donc la taille du robot DEUX FOIS : les
+        # cellules a moins de 23 cm d'un obstacle deviennent bloquantes, et comme
+        # le contour s'etend deja a 25 cm, le robot refuserait tout passage de
+        # moins de ~48 cm alors qu'il en fait 50 de large et ne touche qu'a 23.
+        # C'est exactement le "ca bloque pour rien" corrige plus haut.
+        # NE PAS "corriger" cette valeur pour faire taire l'erreur. Si l'on
+        # voulait la faire taire, il faudrait passer a BaseObstacle + robot_radius
+        # -- au prix d'un contour circulaire, faux pour ce chassis.
+        # Les 5 cm ne sont pas nuls pour autant : etant sous le rayon inscrit,
+        # toute cellule qu'ils marquent devient bloquante, ce qui donne 5 cm de
+        # marge reelle autour des obstacles. Mesure au mur : 1 cm de jeu physique.
+        inflation_radius: 0.05
+        cost_scaling_factor: 5.0
+      always_send_full_costmap: True
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      resolution: 0.04
+      # meme contour reel que le local_costmap (cf. commentaire plus haut)
+      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.40, 0.08], [-0.40, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
+      footprint_padding: 0.01
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          sensor_frame: laser_link
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          max_obstacle_height: 2.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.05
+          raytrace_max_range: 10.0
+          raytrace_min_range: 0.05
+          inf_is_valid: False
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # GLOBAL = planification. Halo LARGE et gradient DOUX : c'est ce qui
+        # ecarte le chemin des obstacles. A 5 cm le cout retombait a zero des
+        # 6 cm, donc raser un mur ne coutait pas plus cher que de passer au
+        # large -> le chemin collait aux obstacles. L'inflation ne bloque
+        # jamais au-dela du rayon inscrit du robot : elle ne fait qu'orienter.
+        # 0.30/2.5 = optimum MESURE (nodes/pathcheck.py, 8 buts a 1.6 m).
+        # 0.45 : chemins 8 % plus longs pour exactement la meme marge.
+        # 0.60 : contre-productif, marge tombee a 0.00 m -> une inflation trop
+        # large sature la carte, les halos se recouvrent, le gradient s'aplatit
+        # et le planificateur n'a plus rien pour se decider : il reprend le plus
+        # court, donc il rase. Ne pas monter au-dela de 0.30 dans un interieur.
+        # 0.50 : BALAYAGE MESURE avec nodes/pathcheck.py dans le salon encombre,
+        # 8 buts a 45 degres d intervalle. Ecart minimal chemin/obstacle observe :
+        #   0.30 -> aucun chemin trouve, ou 0,03 m quand il en trouvait un
+        #   0.45 -> 6 buts sur 8, ecart typique 0,13 a 0,42 m
+        #   0.60 -> 5 buts sur 8, ecart typique 0,22 a 0,27 m
+        # Le robot fait 0,27 m de demi-largeur : a 0.30 la marge etait NEGATIVE de
+        # 24 cm, le chemin traversait l emprise du robot.
+        # 0.50 est le compromis : on garde la joignabilite de 0.45 et l essentiel de
+        # l ecart de 0.60. Monter plus haut reduit le nombre de buts atteignables
+        # sans ameliorer le PIRE cas.
+        #
+        # CE QUE CE REGLAGE NE PEUT PAS CORRIGER : le pire ecart reste a 0,04 m dans
+        # les trois cas. Cela signifie qu au moins un passage est PLUS ETROIT que le
+        # robot. Aucune inflation n y changera rien -- il faut degager le passage, ou
+        # ne pas y envoyer le robot.
+        #
+        # La note precedente disait "0.60 contre-productif, marge tombee a 0.00" : ce
+        # releve venait d une arene de test de 2x2 m avec un cylindre, pas d une
+        # piece meublee. Les deux mesures sont vraies dans leur contexte.
+        inflation_radius: 0.50
+        cost_scaling_factor: 2.5
+      # TRUE, ET NE PAS LE REPASSER A FALSE. Je l avais mis a False pour soulager
+      # le WiFi -- un gain THEORIQUE, jamais mesure -- et cela a rendu le costmap
+      # global INOBTENABLE : ni /global_costmap/costmap ni son topic _updates ne
+      # publiaient plus rien. Consequences constatees :
+      #   . nodes/pathcheck.py, l outil qui MESURE la marge des chemins aux
+      #     obstacles, repondait "pas de costmap globale" ;
+      #   . l affichage du costmap global dans RViz ne recevait plus rien.
+      # Le publieur est pourtant RELIABLE + TRANSIENT_LOCAL : le probleme n est
+      # pas la QoS, c est qu il n y a plus aucun message a retenir.
+      # La congestion RViz que je cherchais a corriger venait en realite de la
+      # fraicheur des TF, pas du volume du costmap.
+      always_send_full_costmap: True
+
+map_server:
+  ros__parameters:
+    # __HOME__ est substitue a l'installation (install.sh) : aucun chemin
+    # en dur, l'arborescence doit suivre le SBC (Jetson -> Raspberry Pi).
+    # Inutilise tant qu'on cartographie en SLAM (slam_toolbox fournit la carte).
+    yaml_filename: "__HOME__/mowbot/maps/arena.yaml"
+
+planner_server:
+  ros__parameters:
+    # 1 Hz et non 5 : SmacPlannerHybrid est bien plus couteux que NavFn (recherche
+    # dans l'espace (x, y, cap) avec 64 caps), et l'arbre ne replanifie qu'a
+    # 1 Hz de toute facon (RateController hz="1.0" dans bt_ackerbot.xml).
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased"]
+    # L'identifiant reste "GridBased" : c'est le default_planner de l'arbre.
+    GridBased:
+      # SYNTAXE JAZZY "paquet::Classe" (install.sh convertit vers Humble).
+      # NavFn (robot A) planifie sur une grille sans notion de cap : ses chemins
+      # font des angles droits qu'un tricycle ne peut pas suivre, et RPP les
+      # coupe ou bloque. SmacPlannerHybrid cherche dans (x, y, cap) avec des
+      # primitives de mouvement a rayon borne : chaque chemin qu'il rend est
+      # PHYSIQUEMENT SUIVABLE par ce robot.
+      plugin: "nav2_smac_planner::SmacPlannerHybrid"
+      # 0.25 m : meme valeur et meme raison que robot A (viser une cellule voisine
+      # quand le but exact est dans un halo ou contre un mur).
+      tolerance: 0.25
+      downsample_costmap: false
+      downsampling_factor: 1
+      # allow_unknown A TRUE : LE REGLAGE INDISPENSABLE D'UNE TONDEUSE, voir la
+      # longue justification dans nav2_params.yaml (83 % d'inconnu sur la carte
+      # du salon, sinon tout l'inconnu se comporte comme un mur).
+      allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0
+      # REEDS_SHEPP et non DUBIN : autorise la marche arriere dans le chemin
+      # lui-meme. Sans rotation sur place, c'est la SEULE facon de se
+      # retourner dans un espace etroit (creneau). Le firmware gere v < 0.
+      motion_model_for_search: "REEDS_SHEPP"
+      angle_quantization_bins: 64
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0
+      analytic_expansion_max_cost: 200.0
+      analytic_expansion_max_cost_override: false
+      # LE PARAMETRE QUI FAIT DE CE FICHIER UN FICHIER ACKERMANN.
+      # R = |x_s| / tan(delta_max) = 0.36 / tan(45 deg) = 0.36 m. DERIVE du firmware
+      # (config/ackerbot_geometry.env, injecte par bin/nav_profile_ackerbot.sh),
+      # JAMAIS saisi a la main : une macro qui codait tan(0,52) en dur a deja
+      # produit 75 % d'erreur sur cette valeur. Sous-estimer ce rayon fait
+      # planifier des virages que le robot ne peut pas prendre.
+      minimum_turning_radius: 0.36
+      # reculer coute 2x : on ne recule que quand ca vaut vraiment le coup
+      reverse_penalty: 2.0
+      change_penalty: 0.0
+      non_straight_penalty: 1.2
+      cost_penalty: 2.0
+      retrospective_penalty: 0.015
+      # 10 m et NON 20 (defaut nav2) : cette table d'heuristique Reeds-Shepp se
+      # PRECALCULE a la configuration, en (taille/resolution)^2 x caps. A 20 m et
+      # 0.04 m de resolution : 500 x 500 cellules x 64 caps -> MESURE 84 s de
+      # configure sur la Jetson NX, pendant lesquels le lifecycle_manager attend
+      # et l'operateur croit la pile bloquee. A 10 m : 250 x 250, MESURE 24 s
+      # sur la meme machine. La table ne sert qu'a l'heuristique PRES du but ;
+      # au-dela Smac retombe sur une distance simple. 10 m couvre un jardin.
+      # Le lifecycle_manager n'a pas de delai de configuration (verifie dans la
+      # bibliotheque installee : seuls bond_timeout et bond_respawn_* existent),
+      # donc 24 s ne mettent pas la pile en danger ; c'est l'attente qui gene.
+      lookup_table_size: 10.0
+      cache_obstacle_heuristic: false
+      debug_visualizations: false
+      use_quadratic_cost_penalty: false
+      downsample_obstacle_heuristic: true
+      allow_primitive_interpolation: false
+      smooth_path: true
+
+smoother_server:
+  ros__parameters:
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+
+behavior_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    # PAS de "spin" : ce robot ne pivote pas sur place (voir l'en-tete). BackUp
+    # reste : reculer droit, roue directrice au centre, le firmware sait faire.
+    behavior_plugins: ["backup", "wait"]
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    global_frame: odom
+    robot_base_frame: base_link
+    # 0.6 s au lieu de 0.3. MESURE sur le Jetson : les TF sont publiees ~280 ms
+    # apres l'horodatage des scans, la tolerance par defaut de 0.3 tombait donc
+    # PILE sur le seuil -- d'ou 73 erreurs "Extrapolation Error looking up
+    # target frame" et des buts qui echouaient une fois sur deux. La valeur par
+    # defaut de nav2 est calee sur des machines plus rapides.
+    # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
+    # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
+    # a resserrer si un jour le SLAM publie plus vite.
+    transform_tolerance: 1.0
+    max_rotational_vel: 0.15
+    min_rotational_vel: 0.05
+    rotational_acc_lim: 2.0
+
+waypoint_follower:
+  ros__parameters:
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: False
+    feedback: "OPEN_LOOP"
+    # theta = v_max / R_min = 0.30 / 0.36 = 0.83 rad/s : la rotation max qui
+    # reste COHERENTE avec le rayon de braquage a la vitesse de croisiere.
+    # Injecte par le profil (ACKERBOT_MAX_VEL_THETA, derive), comme les autres.
+    max_velocity: [0.30, 0.0, 0.83]
+    min_velocity: [-0.30, 0.0, -0.83]
+    max_accel: [0.8, 0.0, 2.0]
+    max_decel: [-1.2, 0.0, -2.5]
+    odom_topic: "/odometry/filtered"
+    odom_duration: 0.2
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+# ============================================================
+#  collision_monitor — OBLIGATOIRE a partir de Jazzy
+#
+#  Ce noeud n'existait pas dans le bringup Humble. navigation_launch.py le
+#  demarre desormais systematiquement, et s'il ne trouve pas sa configuration
+#  il echoue ("parameter 'observation_sources' is not initialized"). Le
+#  lifecycle_manager abandonne alors TOUTE la pile : controller_server et
+#  planner_server restent "inactive", les buts sont acceptes mais rien ne
+#  bouge, et aucun noeud ne s'abonne a /scan.
+#
+#  Role : dernier rempart materiel-logiciel. Il surveille /scan et bride ou
+#  coupe /cmd_vel si une collision devient imminente, independamment du
+#  controleur. Utile pour une tondeuse.
+# ============================================================
+collision_monitor:
+  ros__parameters:
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    # 0.6 s au lieu de 0.3. MESURE sur le Jetson : les TF sont publiees ~280 ms
+    # apres l'horodatage des scans, la tolerance par defaut de 0.3 tombait donc
+    # PILE sur le seuil -- d'ou 73 erreurs "Extrapolation Error looking up
+    # target frame" et des buts qui echouaient une fois sur deux. La valeur par
+    # defaut de nav2 est calee sur des machines plus rapides.
+    # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
+    # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
+    # a resserrer si un jour le SLAM publie plus vite.
+    transform_tolerance: 1.0
+    source_timeout: 1.0
+    base_shift_correction: True
+    stop_pub_timeout: 2.0
+    # Ralentit a l'approche plutot que de bloquer net : le robot est deja tres
+    # lent (0.055 m/s), un arret franc le figerait pour un simple reflet.
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.5
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: False
+      enabled: True
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+      min_height: 0.10
+      max_height: 2.0
+      enabled: True
+
+# ============================================================
+#  docking_server — OBLIGATOIRE a partir de Jazzy
+#
+#  Autre noeud absent du bringup Humble : il gere l'accostage sur une station
+#  de recharge. navigation_launch.py le demarre toujours, et sans plugin
+#  declare il refuse de se configurer ("Charging dock plugins not given!"),
+#  ce qui fait AVORTER TOUTE la pile nav2 par le lifecycle_manager.
+#
+#  Le robot n'a pas de station de recharge : on declare le plugin standard
+#  pour satisfaire le noeud, sans declarer aucune station. Le jour ou une
+#  base de recharge existera, il suffira de lister les stations dans `docks`.
+# ============================================================
+docking_server:
+  ros__parameters:
+    controller_frequency: 10.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.10
+    max_retries: 3
+    base_frame: "base_link"
+    fixed_frame: "odom"
+    dock_plugins: ["simple_charging_dock"]
+    simple_charging_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      use_external_detection_pose: false
+      use_battery_status: false
+      use_stall_detection: false

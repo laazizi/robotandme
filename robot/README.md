@@ -77,6 +77,31 @@ mowbot stop-all    tout arrêter
 expose les chemins (`$MOWBOT_CONFIG`, `$MOWBOT_NODES`, `$MOWBOT_MAPS`…) et les
 périphériques (`$DEV_ESP32`, `$DEV_LIDAR`, `$DEV_IMU`).
 
+## Profils de navigation : robot A, robot B, Ackermann
+
+Le SBC choisit son profil dans `~/mowbot/robot_profile.env` :
+
+```
+MOWBOT_ROBOT=a          # tondeuse P4, 12 V           -> nav2_params.yaml + speeds.env (A_*)
+MOWBOT_ROBOT=b          # tondeuse WROOM, 24 V        -> nav2_params.yaml + speeds.env (B_*)
+MOWBOT_ROBOT=ackerbot   # tricycle a roue directrice  -> nav2_params_ackerbot.yaml + bt_ackerbot.xml
+```
+
+Sans fichier, profil **B par sécurité** (vitesses les plus basses). `start_nav.sh`
+génère une copie du YAML avec les nombres du profil ; le fichier de référence
+n'est jamais modifié.
+
+**Ackermann** (`bin/nav_profile_ackerbot.sh`) : ce robot ne pivote pas sur place,
+donc DWB, NavFn et la récupération `Spin` lui sont interdits — il reçoit
+Regulated Pure Pursuit (marche arrière autorisée, pas de rotation vers le cap),
+SmacPlannerHybrid en Reeds-Shepp, et un arbre sans `Spin`. Le **rayon de
+braquage minimal n'est jamais saisi à la main** : `bin/gen_ackerbot_geometry.py`
+le dérive de `controllers/ackerbot_p4/main/robot.h` dans
+`config/ackerbot_geometry.env` (à relancer après toute modification de la
+géométrie du firmware ; le test hôte `kin_ackermann/test/run.sh` échoue si le
+fichier est périmé). Sans ce fichier, le lancement est **refusé** plutôt que de
+naviguer avec un rayon inventé.
+
 ## ⚠️ USB et udev — le point sensible
 
 L'**ESP32 (DevKitC)** et les **lidars N10 / LD14** utilisent la même puce
