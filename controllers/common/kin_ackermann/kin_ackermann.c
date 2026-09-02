@@ -1,13 +1,17 @@
 // Cinematique ACKERMANN : essieu avant directionnel (servo RC), traction sur
-// l'essieu arriere (un canal MDD10A), encodeurs PCNT sur les deux roues
+// l'essieu arriere par DEUX moteurs (les deux canaux MDD10A), encodeurs sur
 // arriere. PAS de rotation sur place -- voir ackermann.c pour ce que cela
 // implique cote nav2. Utilisee par ackerbot_p4. N'a JAMAIS ROULE : voir le
 // robot.h de ce controleur pour les placeholders.
 //
+// Deux moteurs arriere SANS differentiel mecanique : ce fichier calcule le
+// differentiel ELECTRONIQUE. C'est obligatoire, pas une option -- commander
+// les deux roues a la meme vitesse les fait se battre en virage.
+//
 // Ce fichier fait le lien entre l'interface kin.h et les modules Ackermann :
 //   ackermann.c  : (v, w) -> (v, delta) et odometrie bicyclette (testes sur PC)
-//   steering.c   : le servo (LEDC 50 Hz)
-//   traction.c   : le moteur arriere (LEDC 20 kHz, un canal MDD10A)
+//   steering.c   : le servo (LEDC TIMER_1, 50 Hz)
+//   traction.c   : les deux moteurs arriere (LEDC TIMER_0, 20 kHz)
 
 #include "kin.h"
 #include "config.h"
@@ -36,7 +40,9 @@ static float s_target_v;       // [m/s]  vitesse de l'essieu arriere
 static float s_target_delta;   // [rad]  angle de braquage
 static int s_spin_requests;    // rotations sur place demandees (impossibles)
 
-static pid_ctrl_t s_pid_traction;
+static pid_ctrl_t s_pid_left;      // une boucle de vitesse PAR ROUE arriere
+static pid_ctrl_t s_pid_right;
+static int s_slip_warnings;        // caps incoherents (patinage ou delta faux)
 static ackermann_odom_t s_odom;   // garde delta en plus des champs de kin_odom_t
 static int64_t s_prev_ticks_left;
 static int64_t s_prev_ticks_right;
@@ -51,7 +57,8 @@ void kin_init(void)
     steering_init();
     kin_stop();
     encoders_init();
-    pid_init(&s_pid_traction, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
+    pid_init(&s_pid_left, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
+    pid_init(&s_pid_right, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
 }
 
 bool kin_apply_twist(float v, float w)
@@ -75,6 +82,7 @@ void kin_update(float dt, kin_odom_t *odom)
     // Direction : le servo est asservi en position par construction, on lui
     // envoie l'angle et c'est tout.
     steering_set(s_target_delta);
+    const float delta = steering_get();
 
     // Distance de l'essieu arriere = moyenne des deux roues. En virage la roue
     // interieure parcourt moins que l'exterieure ; leur moyenne est exactement
@@ -90,19 +98,60 @@ void kin_update(float dt, kin_odom_t *odom)
     // L'angle utilise pour l'odometrie est l'angle COMMANDE, faute de retour
     // sur le servo (voir robot.h). C'est la principale source d'erreur de
     // cette odometrie.
-    ackermann_odometry_update(&s_odom, d_rear, steering_get(), dt);
+    ackermann_odometry_update(&s_odom, d_rear, delta, dt);
 
-    float v_rear = d_rear / dt;
+    const float v_rear  = d_rear / dt;
+    const float v_left  = d_left / dt;
+    const float v_right = d_right / dt;
 
-    // FEED-FORWARD + PID sur la vitesse de l'essieu (schema de mowbot).
-    // Consigne nulle : moteur coupe + reset PID, pas de freinage actif.
+    // ---- DIFFERENTIEL ELECTRONIQUE ------------------------------------------
+    // Deux moteurs arriere, aucun differentiel mecanique : la roue interieure
+    // DOIT tourner moins vite, sinon les deux roues se battent (ripage, appel
+    // de courant, odometrie faussee).
+    //   k = voie * tan(delta) / (2 L)      v_int = v (1-k)   v_ext = v (1+k)
+    // Forme equivalente a (R -+ voie/2)/R avec R = L/tan(delta), mais SANS
+    // division par R : aucune singularite en ligne droite (delta=0 -> k=0).
+    // k reste tres inferieur a 1 (0,239 a la butee avec la geometrie actuelle),
+    // donc la roue interieure ne s'inverse jamais. delta > 0 = virage a GAUCHE,
+    // la roue gauche est donc l'interieure.
+    const float k = TRACK_WIDTH_M * tanf(delta) / (2.0f * WHEELBASE_M);
+    const float target_left  = s_target_v * (1.0f - k);
+    const float target_right = s_target_v * (1.0f + k);
+
+    // FEED-FORWARD + PID par ROUE (schema de mowbot, une boucle par moteur).
+    // Consigne nulle : moteurs coupes + reset PID, pas de freinage actif.
     if (s_target_v == 0.0f) {
-        pid_reset(&s_pid_traction);
-        traction_set(0.0f);
+        pid_reset(&s_pid_left);
+        pid_reset(&s_pid_right);
+        traction_stop();
     } else {
-        float ff = FF_GAIN * clampf(s_target_v / MAX_SPEED_MPS, -1.0f, 1.0f);
-        traction_set(clampf(ff + pid_update(&s_pid_traction, s_target_v, v_rear, dt),
+        const float ff_l = FF_GAIN * clampf(target_left / MAX_SPEED_MPS, -1.0f, 1.0f);
+        const float ff_r = FF_GAIN * clampf(target_right / MAX_SPEED_MPS, -1.0f, 1.0f);
+        traction_set(TRACTION_LEFT,
+                     clampf(ff_l + pid_update(&s_pid_left, target_left, v_left, dt),
                             -1.0f, 1.0f));
+        traction_set(TRACTION_RIGHT,
+                     clampf(ff_r + pid_update(&s_pid_right, target_right, v_right, dt),
+                            -1.0f, 1.0f));
+    }
+
+    // ---- RECOUPEMENT DU CAP : patinage, ou servo qui ment ? ------------------
+    // Avoir deux encodeurs arriere donne un SECOND cap, independant du modele :
+    //   w_roues  = (v_droite - v_gauche) / voie
+    //   w_modele = v * tan(delta) / L
+    // Le servo etant SANS retour, une divergence durable signale soit du
+    // patinage, soit un angle de braquage reel different du commande. C'est
+    // gratuit, et c'est le seul controle possible sur delta. Le seuil de
+    // 0,35 rad/s (~20 deg/s) est a affiner au bring-up.
+    if (fabsf(v_rear) > 0.1f) {
+        const float w_wheels = (v_right - v_left) / TRACK_WIDTH_M;
+        const float w_model  = v_rear * tanf(delta) / WHEELBASE_M;
+        if (fabsf(w_wheels - w_model) > 0.35f && (++s_slip_warnings % 50) == 1) {
+            ESP_LOGW(TAG, "cap incoherent (%d fois) : roues %+.2f rad/s vs modele "
+                          "%+.2f rad/s a delta=%+.2f rad -- patinage, ou braquage "
+                          "reel different du commande",
+                     s_slip_warnings, (double)w_wheels, (double)w_model, (double)delta);
+        }
     }
 
     odom->x = s_odom.x;
@@ -129,6 +178,11 @@ void kin_bench_test(void)
     ESP_LOGW(TAG, "==== TEST BANC ACKERMANN (roues en l'air, servo alimente !) ====");
 
     ESP_LOGW(TAG, "1) direction : centre, gauche, droite, centre -- 1,5 s chacun.");
+    ESP_LOGW(TAG, "   PIN_SERVO=%d est un CANDIDAT non valide sur cette carte. Si le",
+             PIN_SERVO);
+    ESP_LOGW(TAG, "   servo reste INERTE aux 4 etapes, la broche est probablement morte :");
+    ESP_LOGW(TAG, "   en essayer une autre du header DROIT (robot.h). Verifier d'abord");
+    ESP_LOGW(TAG, "   que le servo est alimente SEPAREMENT en 5-6 V, masse commune.");
     ESP_LOGW(TAG, "   attendu : roues a GAUCHE quand delta > 0. Sinon : SERVO_INVERT.");
     ESP_LOGW(TAG, "   Les roues doivent atteindre la butee SANS forcer : sinon reduire");
     ESP_LOGW(TAG, "   STEER_MAX_RAD ou ajuster SERVO_MIN_US / SERVO_MAX_US.");
@@ -144,22 +198,45 @@ void kin_bench_test(void)
         vTaskDelay(pdMS_TO_TICKS(1500));
     }
 
-    ESP_LOGW(TAG, "2) traction : 2 s avant (+), 2 s arriere (-).");
-    ESP_LOGW(TAG, "   attendu : les DEUX encodeurs comptent + en avant, - en arriere.");
-    ESP_LOGW(TAG, "   Sinon : 0=muet, signe d'une roue=ENC_x_INVERT, les deux=TRACTION_INVERT.");
+    ESP_LOGW(TAG, "2) traction : chaque roue SEPAREMENT, 2 s avant (+), 2 s arriere (-).");
+    ESP_LOGW(TAG, "   attendu : SEULE la roue testee tourne, et SEUL son encodeur bouge,");
+    ESP_LOGW(TAG, "   en comptant + en avant.");
+    ESP_LOGW(TAG, "   0 partout        -> moteur non alimente ou broche PWM muette");
+    ESP_LOGW(TAG, "   signe inverse    -> ENC_x_INVERT de cette roue");
+    ESP_LOGW(TAG, "   roue a l'envers  -> MOTOR_x_INVERT de cette roue");
+    ESP_LOGW(TAG, "   l'AUTRE encodeur bouge -> canaux moteur ou encodeurs permutes");
     const float DUTY = 0.25f;
-    for (int sens = +1; sens >= -1; sens -= 2) {
-        int64_t g0 = encoder_get_ticks(ENCODER_LEFT);
-        int64_t d0 = encoder_get_ticks(ENCODER_RIGHT);
-        traction_set((float)sens * DUTY);
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        traction_stop();
-        ESP_LOGW(TAG, "   %s : enc_G=%+6lld  enc_D=%+6lld",
-                 sens > 0 ? "avant  (+)" : "arriere(-)",
-                 (long long)(encoder_get_ticks(ENCODER_LEFT) - g0),
-                 (long long)(encoder_get_ticks(ENCODER_RIGHT) - d0));
-        vTaskDelay(pdMS_TO_TICKS(500));
+    static const struct { const char *nom; traction_id_t id; } roues[] = {
+        { "GAUCHE", TRACTION_LEFT  },
+        { "DROITE", TRACTION_RIGHT },
+    };
+    for (unsigned r = 0; r < sizeof(roues) / sizeof(roues[0]); r++) {
+        for (int sens = +1; sens >= -1; sens -= 2) {
+            int64_t g0 = encoder_get_ticks(ENCODER_LEFT);
+            int64_t d0 = encoder_get_ticks(ENCODER_RIGHT);
+            traction_set(roues[r].id, (float)sens * DUTY);
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            traction_stop();
+            ESP_LOGW(TAG, "   roue %s %s : enc_G=%+6lld  enc_D=%+6lld",
+                     roues[r].nom, sens > 0 ? "avant  (+)" : "arriere(-)",
+                     (long long)(encoder_get_ticks(ENCODER_LEFT) - g0),
+                     (long long)(encoder_get_ticks(ENCODER_RIGHT) - d0));
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
     }
+
+    // Pas d'action, juste de quoi verifier la geometrie avant de rouler : si
+    // ces pourcentages semblent absurdes, TRACK_WIDTH_M / WHEELBASE_M /
+    // STEER_MAX_RAD sont encore des placeholders.
+    const float k_max = TRACK_WIDTH_M * tanf(STEER_MAX_RAD) / (2.0f * WHEELBASE_M);
+    ESP_LOGW(TAG, "3) differentiel electronique (calcul, aucun mouvement) :");
+    ESP_LOGW(TAG, "   L=%.3f m  voie=%.3f m  delta_max=%.2f rad  ->  k_max=%.3f",
+             (double)WHEELBASE_M, (double)TRACK_WIDTH_M, (double)STEER_MAX_RAD,
+             (double)k_max);
+    ESP_LOGW(TAG, "   a la butee : roue INT a %.0f %%, roue EXT a %.0f %% de la vitesse",
+             (double)(100.0f * (1.0f - k_max)), (double)(100.0f * (1.0f + k_max)));
+    ESP_LOGW(TAG, "   rayon de braquage min = %.3f m (a donner a nav2)",
+             (double)MIN_TURNING_RADIUS_M);
 
     ESP_LOGW(TAG, "==== FIN TEST BANC ====");
 }

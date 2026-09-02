@@ -14,17 +14,31 @@
 // le header DROIT est libre ; GPIO 5, 6, 15, 16 morts ; 46 mort, 48
 // inaccessible ; strapping sur 34..38 ; P4 NON tolerant 5 V.
 // ------------------------------------------------------------
-// Traction : UN canal du MDD10A (ex-canal gauche de mowbot).
-// SI LE CHASSIS A DEUX MOTEURS ARRIERE SANS DIFFERENTIEL MECANIQUE, ce choix
-// est a revoir : il faut les deux canaux et un differentiel electronique
-// (roue interieure ralentie en virage). Question ouverte au 1er septembre 2026.
-#define PIN_TRACTION_PWM   22
-#define PIN_TRACTION_DIR   23
-// Direction : servo RC, PWM 50 Hz. Ex-PIN_MOTOR_R_PWM de mowbot : sortie LEDC
-// deja validee, libre ici. GPIO 21 (ex-DIR droit) reste libre.
+// Traction : DEUX moteurs arriere, un par roue, sur les DEUX canaux du
+// MDD10A -- decision de l'utilisateur du 2 septembre 2026 : on REUTILISE la
+// carte et le cablage de mowbot tels quels, on n'ajoute qu'un servo.
+// Broches IDENTIQUES a mowbot_p4, validees au banc : rien a redecabler.
+// Pas de differentiel mecanique => differentiel ELECTRONIQUE obligatoire,
+// calcule dans kin_ackermann.c (roue interieure ralentie en virage).
+#define PIN_MOTOR_L_PWM    22
+#define PIN_MOTOR_L_DIR    23
+#define PIN_MOTOR_R_PWM    20
+#define PIN_MOTOR_R_DIR    21
+// Direction : servo RC, PWM 50 Hz. C'est le SEUL signal ajoute par ce robot,
+// donc la seule broche qui n'est pas heritee de mowbot.
+//
+// GPIO 45 est un CANDIDAT, PAS UNE BROCHE VALIDEE. Raisonnement : il n'est
+// utilise par aucun controleur, il est sur le meme header que GPIO 47 (utilise
+// par l'encodeur gauche), et il n'a jamais ete signale mort -- contrairement a
+// 46 (muet au banc), 48 (inaccessible) et 5/6/15/16 (header gauche, morts).
+// A CONFIRMER au banc : kin_bench_test() balaye le servo au boot, il suffit de
+// regarder s'il bouge. S'il reste inerte, essayer une autre broche du header
+// DROIT et corriger ici. Le brochage Waveshare n'est pas une preuve : le
+// header gauche est etiquete "GPIO" et s'est revele mort sur cette carte.
+//
 // Le servo s'alimente SEPAREMENT en 5-6 V, jamais depuis le P4 ; son signal
 // 3,3 V est accepte par la plupart des servos RC.
-#define PIN_SERVO          20
+#define PIN_SERVO          45
 // Encodeurs des roues ARRIERE. On GARDE les noms L/R : encoders.c est commun
 // et n'a pas a savoir qu'il s'agit d'un essieu arriere.
 #define PIN_ENC_L_A        27
@@ -44,6 +58,9 @@
 #define WHEELBASE_M          0.30f   // L : axe arriere -> axe avant [m]
 #define TRACK_WIDTH_M        0.25f   // entre les roues arriere [m]
 #define WHEEL_RADIUS_M       0.05f   // rayon EFFECTIF des roues arriere [m]
+                                     // SI les roues de la tondeuse sont
+                                     // reutilisees : 0.0753f, mesure au sol
+                                     // (cf. mowbot_p4/main/robot.h).
 #define TICKS_PER_WHEEL_REV  2560.0f
 #define STEER_MAX_RAD        0.52f   // 30 deg, en BUTEE MECANIQUE
 
@@ -68,9 +85,15 @@
 // Traction et regulation. Gains de mowbot 12 V, A REGLER ICI.
 // ------------------------------------------------------------
 #define MAX_SPEED_MPS        1.0f
-#define TRACTION_INVERT      0
+// Inversions REPRISES DE MOWBOT_P4 : memes moteurs, memes encodeurs, memes
+// broches, meme cablage. ENC_R_INVERT=1 y est le resultat d'une calibration au
+// sol (l'echange L<->R des canaux M1/M2, cf. memoire board-usable-gpio).
+// A reverifier quand meme au banc : si le chassis Ackermann inverse un moteur
+// ou un encodeur par rapport a la tondeuse, c'est ici que ca se corrige.
+#define MOTOR_L_INVERT       0
+#define MOTOR_R_INVERT       0
 #define ENC_L_INVERT         0       // au banc : chaque roue doit compter + en avant
-#define ENC_R_INVERT         0
+#define ENC_R_INVERT         1
 #define FF_GAIN              0.0f    // mowbot suivait a 83 % sans FF : 1.0 est un bon depart
 #define PID_KP               0.8f
 #define PID_KI               2.0f

@@ -99,10 +99,23 @@ Côté SBC : voir `robot/README.md` (agent docker, EKF, nav2, teleop).
 - **Servo RC pour la direction** (PWM 50 Hz, LEDC TIMER_1 14 bits) : asservi en
   position par construction, donc aucune boucle à écrire ; mais **sans retour**,
   l'odométrie utilise l'angle *commandé* — sa première source d'erreur.
-- **Traction sur un canal MDD10A** (LEDC TIMER_0, 20 kHz), encodeurs PCNT sur
-  les deux roues arrière, distance = moyenne des deux. **Question ouverte** :
-  si le châssis a deux moteurs arrière sans différentiel mécanique, il faut les
-  deux canaux et un différentiel électronique.
+- **Deux moteurs arrière, un par roue, sur les DEUX canaux du MDD10A** (LEDC
+  TIMER_0, 20 kHz, canaux 0 et 1), un PID par roue ; encodeurs PCNT sur les deux
+  roues arrière, distance = moyenne des deux. Décision du 2 septembre 2026 : on
+  réutilise la carte et le câblage de `mowbot_p4` **tels quels**, on n'ajoute
+  qu'un servo. Les broches moteur/encodeurs/IMU et `ENC_R_INVERT=1` sont donc
+  celles, validées au banc et calibrées au sol, de robot A.
+- **Différentiel électronique OBLIGATOIRE**, puisqu'il n'y a pas de différentiel
+  mécanique : `k = voie·tan(δ)/(2L)`, `v_int = v(1−k)`, `v_ext = v(1+k)`. Cette
+  forme est équivalente à `(R∓voie/2)/R` mais **sans division par R**, donc sans
+  singularité en ligne droite. Commander les deux roues à la même vitesse les
+  ferait se battre : ±24 % de glissement à la butée avec la géométrie actuelle.
+- **Recoupement de cap, gratuit et exact** : `w_roues = (v_d−v_g)/voie` contre
+  `w_modèle = v·tan(δ)/L`. Sans patinage les deux sont identiques au bit près
+  (vérifié sur 2 006 cas, marche arrière comprise, écart max 9e−16 rad/s), donc
+  toute divergence signale du patinage ou un braquage réel différent du
+  commandé. C'est le **seul** garde-fou sur δ, le servo étant sans retour.
+  Journal rate-limité, seuil 0,35 rad/s à affiner au bring-up.
 - **Modèle bicyclette** : `θ̇ = v·tan(δ)/L`, `δ = atan(ωL/v)` — juste aussi en
   marche arrière, sans correction de signe (validé par 12 tests numériques sur
   PC). Rotation sur place refusée proprement : v=0, pré-braquage, journal.
@@ -113,8 +126,18 @@ Côté SBC : voir `robot/README.md` (agent docker, EKF, nav2, teleop).
   le rayon (SmacPlannerHybrid) et un contrôleur RPP sans rotate-to-heading ou
   MPPI en modèle Ackermann. **Ne pas toucher la config nav2 de robot A** : un
   fichier de paramètres séparé.
-- Bring-up : `BOOT_BENCH_TEST 1` puis `kin_bench_test()` (course du servo, sens
-  traction, signe des encodeurs), roues en l'air, servo alimenté à part.
+- **`PIN_SERVO 45` est un CANDIDAT, pas une broche validée.** C'est le seul
+  signal ajouté par ce robot, donc la seule broche non héritée de robot A.
+  Raisonnement : inutilisée par tout contrôleur, même header que GPIO 47, jamais
+  signalée morte — contrairement à 46 (muet), 48 (inaccessible) et 5/6/15/16.
+  Le brochage Waveshare ne fait pas preuve ici : le header gauche est étiqueté
+  « GPIO » et s'est révélé mort sur cette carte. À trancher au banc.
+- Bring-up : `BOOT_BENCH_TEST 1` puis `kin_bench_test()`, roues en l'air et
+  servo alimenté à part. Trois étapes : course et sens du servo (et donc
+  validité de sa broche), puis **chaque roue séparément** — ce qui détecte aussi
+  une permutation de canaux, déjà survenue sur robot A — puis l'affichage du `k`
+  à la butée et du rayon de braquage, pour repérer une géométrie absurde avant
+  de rouler.
 
 ## Reste à faire
 
