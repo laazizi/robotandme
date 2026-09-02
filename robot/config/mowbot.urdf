@@ -2,14 +2,23 @@
 <!-- mowbot — modele fidele au chassis actuel (photos) :
      - plateau de base ROND en BOIS clair (~Ø44 cm)
      - 2 roues motrices Ø15 cm, pneus BLANCS + jantes noires
-     - roulette folle a l'arriere
+     - ROUE DIRECTRICE a l'arriere, commandee par un servo RC (depuis le
+       03/09/2026 : elle remplace la roulette folle). Contact a x = -0.36,
+       soit 20 cm derriere le lidar. C'est STEER_X_M de
+       controllers/ackerbot_p4/main/robot.h, et le signe compte : etant
+       DERRIERE l'essieu moteur, le robot tourne a l'oppose d'un tricycle
+       classique pour un meme braquage.
      - 4 montants en bois soutenant un plateau ALU en etage (~27 cm)
      - LIDAR (noir) sur le plateau alu, 10 cm en ARRIERE du centre, 28 cm de
        haut (16 cm mesures au metre). DOIT correspondre a MOWBOT_LIDAR_X de
        bin/run_tf.sh : l'autre robot du projet l'a a +0.10, celui-ci a -0.16.
      - batterie bleue + electronique (MDD10A, DevKitC) sur la base
-     base_link : centre du robot, a hauteur d'axe des roues. x = AVANT
-     (cote lidar, apres inversion logicielle du sens de marche). -->
+     base_link : centre du robot, a hauteur d'axe des roues.
+     x = AVANT : c'est front_marker (+0.205) qui fait foi, ainsi que les
+     montants avant (+0.13) et arriere (-0.10). Le LIDAR est donc A L'ARRIERE
+     (-0.16), tout comme la roue directrice (-0.36). Une version precedente de
+     ce commentaire annoncait "x = AVANT (cote lidar)" : c'etait FAUX, et cette
+     erreur a failli faire coder le modele de direction a l'envers. -->
 <robot name="mowbot">
 
   <material name="bois">      <color rgba="0.85 0.72 0.50 1.0"/></material>
@@ -44,13 +53,17 @@
        telle quelle plutot que d'elargir tout l'arriere. -->
   <link name="rear_ext">
     <visual>
-      <geometry><box size="0.05 0.15 0.018"/></geometry>
+      <geometry><box size="0.16 0.15 0.018"/></geometry>
       <material name="bois"/>
     </visual>
   </link>
+  <!-- Bras arriere : il doit desormais porter la roue directrice a -0.36,
+       alors que le plateau rond s'arrete vers -0.22. Longueur et position
+       DEDUITES de ces deux extremites, pas mesurees : seul le point de contact
+       de la roue l'est. A corriger si le bras reel differe. -->
   <joint name="base_to_rear_ext" type="fixed">
     <parent link="base_link"/><child link="rear_ext"/>
-    <origin xyz="-0.245 0 -0.02"/>
+    <origin xyz="-0.29 0 -0.02"/>
   </joint>
 
   <!-- ===== Roues motrices (pneus blancs) ===== -->
@@ -111,16 +124,26 @@
   </joint>
 
   <!-- ===== Roulette folle arriere ===== -->
-  <link name="caster_rear">
+  <!-- ===== Roue DIRECTRICE arriere (servo RC sur GPIO 14) =====
+       Remplace la roulette folle depuis le 03/09/2026.
+       x = -0.36 : MESURE (20 cm derriere le lidar, lui-meme a -0.16).
+       z = -0.043 : le sol est a -0.0753 (rayon des roues motrices), donc une
+       roue de rayon 0.032 a son axe a -0.0433. Le rayon 0.032 est celui de
+       l'ancienne roulette et n'a PAS ete remesure : s'il change, corriger le
+       rayon ET z ensemble, sinon la roue flotte ou s'enfonce dans le sol.
+       Joint FIXE : l'angle de braquage n'est pas anime. L'animer demanderait
+       de publier un joint_states alimente par le delta commande du firmware.
+       Le modele n'a aucun effet sur la navigation, il ne sert qu'a l'affichage. -->
+  <link name="steer_wheel">
     <visual>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry><cylinder radius="0.032" length="0.022"/></geometry>
       <material name="noir"/>
     </visual>
   </link>
-  <joint name="base_to_caster" type="fixed">
-    <parent link="base_link"/><child link="caster_rear"/>
-    <origin xyz="-0.17 0 -0.043" rpy="0 0 0"/>
+  <joint name="base_to_steer_wheel" type="fixed">
+    <parent link="base_link"/><child link="steer_wheel"/>
+    <origin xyz="-0.36 0 -0.043" rpy="0 0 0"/>
   </joint>
 
   <!-- ===== 4 montants en bois ===== -->
@@ -158,7 +181,7 @@
   </link>
   <joint name="deck_to_lidar" type="fixed">
     <parent link="base_link"/><child link="lidar_body"/>
-    <!-- x = -0.10 : le lidar de CE robot est 10 cm en ARRIERE du centre.
+    <!-- x = -0.16 : le lidar de CE robot est 16 cm en ARRIERE du centre.
          CETTE VALEUR DOIT SUIVRE MOWBOT_LIDAR_X de bin/run_tf.sh, qui publie
          la TF base_link vers laser_link. Elles avaient diverge : le modele
          dessinait le lidar a +0.10 (comme sur l'autre robot) pendant que la TF
