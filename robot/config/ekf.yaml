@@ -14,7 +14,15 @@ ekf_filter_node:
     # UNE SECONDE de retard sur les scans : slam_toolbox ne pouvait alors placer
     # aucun scan ("queue is full" sur tous), donc aucune carte. Inutile de
     # tourner plus vite que les capteurs : /odom arrive a 10 Hz, l'IMU a 20.
-    frequency: 15.0
+    # 10 Hz et non 15 : MESURE, l'EKF met 0,090 a 0,098 s par cycle sur cette
+    # machine, alors que 15 Hz ne lui laisse que 0,067 s. Il ne pouvait donc
+    # structurellement pas tenir la cadence -- 175 plaintes "Failed to meet update
+    # rate" releves, et /odometry/filtered mesure a 13,4 Hz et non 15.
+    # A 10 Hz le budget est de 0,100 s : il tient, et il cesse de prendre du retard
+    # quand la machine est chargee. Mieux vaut une cadence honoree qu'une cadence
+    # affichee : c'est le retard accumule qui faisait perimer la TF composee
+    # map->base_link au-dela de transform_tolerance.
+    frequency: 10.0
     sensor_timeout: 0.2
     two_d_mode: true            # tondeuse : on reste dans le plan
     publish_tf: true

@@ -33,14 +33,62 @@ slam_toolbox:
     minimum_time_interval: 0.3
     transform_timeout: 0.3
     tf_buffer_duration: 30.0
+
+    # FILE D'ATTENTE DES SCANS : LAISSER A 1, le defaut de slam_toolbox.
+    #
+    # On a essaye 10 pour arreter les scans jetes (210 en 979 s, soit 3,6 % du
+    # flux, avec "discarding message because the queue is full"). Le remede
+    # etait PIRE que le mal, et la mesure le montre sans ambiguite :
+    #
+    #   scan_queue_size    scans perdus        age de la TF map->odom
+    #   1                  3,6 % du flux       0,031 s  (median, mesure)
+    #   10                 aucun               9,7 s    (median, pointes a 63 s)
+    #
+    # POURQUOI. Avec une file, un scan en retard n'est plus jete : il ATTEND.
+    # slam_toolbox traite donc des scans de plus en plus vieux, et il horodate
+    # la transformation map->odom avec le scan qu'il vient de traiter. La TF
+    # prend le retard de la file.
+    #
+    # Or un scan jete ne coute presque rien -- il y en a six par seconde. Une
+    # TF map->odom de 9,7 s casse TOUT :
+    #   . nav2 : "Transform data too old when converting from map to odom",
+    #     le planificateur ne peut plus situer le robot et refuse les buts ;
+    #   . RViz : ne peut plus placer laser_link ni odom, met les messages en
+    #     file, la file deborde, il jette tout l'affichage.
+    # Mesure depuis le PC : /scan arrivait avec un age de -0,016 s (parfait)
+    # pendant que /tf arrivait avec 13 s d'age median. Les horloges des deux
+    # machines etaient bien synchronisees : le retard etait entierement du a
+    # cette file.
+    #
+    # LA FRAICHEUR DE LA TF PRIME SUR L'EXHAUSTIVITE DES SCANS. Si les rejets
+    # deviennent genants, la bonne reponse est d'alleger slam_toolbox
+    # (resolution, minimum_travel_*, max_laser_range) pour qu'il suive la
+    # cadence, PAS de lui donner une file ou accumuler du retard.
+    scan_queue_size: 1
     stack_size_to_use: 40000000
     enable_interactive_mode: true
 
     # Robot LENT (0.055 m/s) : on accepte de petits deplacements entre scans
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.05
-    minimum_travel_heading: 0.05
+    # DENSITE DU GRAPHE DE POSES. Ces deux seuils decident quand slam_toolbox
+    # ajoute un noeud : trop bas, il en cree des centaines pour rien, sature, et
+    # cesse de publier la TF map->odom a l'heure. Symptome mesure :
+    #   Transform data too old when converting from map to odom   (23 fois)
+    #   GridBased plugin failed to plan                            (25 fois)
+    # Le planificateur ne peut alors plus situer le robot dans `map` et refuse
+    # le but AVANT de rouler -- des echecs en 0,1 s sur des points pourtant
+    # situes dans des cellules LIBRES. Au repos la TF est fraiche (age median
+    # 0,031 s) : la panne n'apparait que sous charge, donc en mouvement.
+    #
+    # 0.05 rad valait 2,9 DEGRES : une rotation d'arrivee de 360 deg creait 126
+    # noeuds a elle seule. A 0.35 rad (20 deg) il en reste 18, sept fois moins.
+    # 0.05 m etait aussi excessif pour un robot de 50 cm de long : un noeud tous
+    # les 15 cm suffit largement a la qualite de la carte.
+    # Ne pas monter beaucoup plus haut : des noeuds trop espaces degradent le
+    # recalage entre scans successifs, donc la precision de la carte.
+    minimum_travel_distance: 0.15
+    minimum_travel_heading: 0.35
     scan_buffer_size: 20
     scan_buffer_maximum_scan_distance: 12.0
     link_match_minimum_response_fine: 0.1

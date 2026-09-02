@@ -105,7 +105,30 @@ if [ -f "$SPEEDS" ]; then
     set_num acc_lim_theta    ACC_LIM_THETA
     set_num decel_lim_x      DECEL_LIM_X
     set_num decel_lim_theta  DECEL_LIM_THETA
+    set_num min_speed_xy     MIN_SPEED_XY
+    set_num min_speed_theta  MIN_SPEED_THETA
     set_num sim_time         SIM_TIME
+
+    # GARDE-FOU : un min_speed superieur au max rendrait TOUTE trajectoire
+    # invalide, donc le robot totalement immobile, et DWB ne dirait que
+    # "No valid trajectories" sans expliquer pourquoi. Le cas est arrivable des
+    # qu'on ajoute un profil de robot lent en oubliant son seuil de friction.
+    eval "msxy=\${${P}_MIN_SPEED_XY:-0}"; eval "mxvx=\${${P}_MAX_VEL_X:-}"
+    eval "msth=\${${P}_MIN_SPEED_THETA:-0}"; eval "mxvt=\${${P}_MAX_VEL_THETA:-}"
+    incoherent=0
+    if [ -n "$mxvx" ] && awk "BEGIN{exit !($msxy >= $mxvx)}"; then
+      mowbot_log "ATTENTION profil $P : MIN_SPEED_XY ($msxy) >= MAX_VEL_X ($mxvx)"
+      incoherent=1
+    fi
+    if [ -n "$mxvt" ] && awk "BEGIN{exit !($msth >= $mxvt)}"; then
+      mowbot_log "ATTENTION profil $P : MIN_SPEED_THETA ($msth) >= MAX_VEL_THETA ($mxvt)"
+      incoherent=1
+    fi
+    if [ "$incoherent" = "1" ]; then
+      mowbot_log "         seuils de friction REMIS A ZERO pour ne pas immobiliser le robot"
+      sed -i -E "s|^([[:space:]]*)min_speed_xy:[[:space:]]*-?[0-9.]+|\1min_speed_xy: 0.0|" "$GEN"
+      sed -i -E "s|^([[:space:]]*)min_speed_theta:[[:space:]]*-?[0-9.]+|\1min_speed_theta: 0.0|" "$GEN"
+    fi
     # velocity_smoother : listes [x, y, theta]. Il BRIDE la sortie du
     # controleur ; l'oublier annulerait tout le reste.
     eval "vx=\${${P}_MAX_VEL_X:-}"; eval "vn=\${${P}_MIN_VEL_X:-}"

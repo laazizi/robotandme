@@ -6,8 +6,23 @@ bt_navigator:
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /odometry/filtered
-    bt_loop_duration: 10
-    default_server_timeout: 20
+    # CES DEUX VALEURS SONT LIEES, et les monter ensemble est indispensable.
+    # default_server_timeout est en MILLISECONDES (defaut nav2 : 20), et le code
+    # de nav2_behavior_tree l'ECRETE :
+    #     max_timeout_ = bt_loop_duration * 0.5
+    # Avec bt_loop_duration a 10 ms, le delai d'attente d'un serveur d'action
+    # etait donc plafonne a CINQ MILLISECONDES. Sur cette machine, ou l'on
+    # mesure regulierement de la contention, c'est intenable : nav2 abandonnait
+    # le but avant meme d'avoir commence, avec
+    #   Timed out while waiting for action server to acknowledge goal request
+    # 16 fois, et des buts qui echouaient en 0,1 s. Monter le seul
+    # default_server_timeout n'aurait rien change a cause de l'ecretage.
+    # bt_loop_duration a 100 ms = arbre cadence a 10 Hz, comme le controleur.
+    # A 0,30 m/s cela represente 3 cm de trajet entre deux evaluations : sans
+    # consequence pour une tondeuse, et cela divise par dix le cout de parcours
+    # de l'arbre. Le delai effectif devient 50 ms, soit 2,5 fois le defaut nav2.
+    bt_loop_duration: 100
+    default_server_timeout: 50
     # NOTRE arbre de comportement, et non celui de nav2. Un seul changement :
     # l'ordre des actions de degagement. L'amont essaie d'abord d'effacer les
     # costmaps, PUIS DE TOURNER SUR PLACE, PUIS D'ATTENDRE 5 s, et ne recule
@@ -44,7 +59,22 @@ controller_server:
       # robot de 58 cm de long : viser 8 cm etait irrealiste (le dernier
       # centimetre prenait plus longtemps que tout le trajet, a 0.048 m/s).
       xy_goal_tolerance: 0.12
-      yaw_goal_tolerance: 0.20
+      # 3.15 rad, soit PLUS DE 180 DEGRES : autant dire "le cap n'importe pas".
+      # A 0.20 rad (11,5 deg) le robot devait finir aligne sur le cap demande, donc
+      # il PIVOTAIT SUR PLACE a chaque arrivee -- jusqu'a 3 s par point a
+      # max_vel_theta 1.0 rad/s, pour une orientation dont on n'a le plus souvent
+      # rien a faire sur un point de passage.
+      #
+      # QUAND LE REMETTRE SERRE : si un point exige une orientation precise --
+      # aborder une rangee de tonte dans le bon sens, se presenter face a une
+      # station de charge, franchir un passage etroit. Le cap de chaque point
+      # reste transmis dans le but : c'est seulement le CONTROLE d'arrivee qui
+      # ne l'exige plus.
+      # Variante plus explicite si l'on veut ignorer le cap par construction :
+      #   plugin: "nav2_controller::PositionGoalChecker"   (ne verifie que x, y)
+      # On garde SimpleGoalChecker : un seul nombre a changer pour revenir en
+      # arriere, contre un changement de greffon.
+      yaw_goal_tolerance: 3.15
       stateful: True
     # ==========================================================
     #  CONTROLEUR : DWB  (choisi pour les obstacles dynamiques)
@@ -75,6 +105,20 @@ controller_server:
       min_vel_y: 0.0
       max_vel_y: 0.0
       max_vel_theta: 0.22
+      # LAISSER A ZERO. Ces deux seuils ne peuvent PAS servir a imposer le seuil
+      # de friction des moteurs, et l'essai a immobilise le robot.
+      # Regle de DWB (dwb_plugins/kinematic_parameters.hpp, isValidSpeed) : une
+      # trajectoire est rejetee si vitesse < min_speed_xy ET rotation <
+      # min_speed_theta. Or DWB n'echantillonne que la fenetre ATTEIGNABLE depuis
+      # la vitesse actuelle. Depuis l'ARRET, a 10 Hz : 0.8 x 0.1 = 0.08 m/s et
+      # 2.0 x 0.1 = 0.20 rad/s. Des seuils de 0.13 / 0.5 couvraient donc TOUTE
+      # cette fenetre : aucune trajectoire valide, le robot ne demarrait plus du
+      # tout, et les buts envoyes depuis RViz restaient sans effet.
+      # La compensation de friction appartient au FIRMWARE (minimum de PWM ou
+      # terme d'anticipation cote moteur), pas au test de validite d'une
+      # trajectoire. Detail complet dans config/speeds.env.
+      # Les valeurs restent pilotees par le profil, avec un controle de coherence
+      # dans start_nav.sh, au cas ou l'on voudrait un jour les reactiver.
       min_speed_xy: 0.0
       max_speed_xy: 0.055
       min_speed_theta: 0.0
@@ -118,7 +162,23 @@ controller_server:
       # Ce n est pas gratuit : nav2 planifie alors sur une pose vieille de
       # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse.
       # A resserrer si le SLAM se met un jour a publier plus vite.
-      transform_tolerance: 0.6
+      # 1.0 s et non 0.6 : MITIGATION ASSUMEE, pas une correction.
+      # Sous charge de navigation, nav2 abandonnait des buts sur
+      #   Transform data too old when converting from odom to map
+      #   Data time: ...444.500  Transform time: ...443.899
+      # soit exactement 0,600 s d ecart : on tapait pile la tolerance.
+      # Or les donnees ne sont PAS reellement perimees. Mesure au repos :
+      #   /scan_raw +0,002 s   /odom +0,054 s   /imu +0,045 s
+      #   map->odom -0,13 s    odom->base_link +0,081 s a 15,0 Hz
+      # Tout arrive en quelques dizaines de millisecondes. Ce sont des a-coups
+      # transitoires sous charge qui franchissent le seuil, pas une chaine
+      # lente. 1,0 s laisse la marge pour les absorber sans jamais agir sur
+      # une pose vraiment vieille.
+      # LA VRAIE CORRECTION est de reduire la charge en navigation (voir la
+      # frequence du costmap local ci-dessous et ekf.yaml). Si les a-coups
+      # disparaissent, redescendre ce seuil : une tolerance large masque un
+      # probleme de fraicheur au lieu de le signaler.
+      transform_tolerance: 1.0
       trans_stopped_velocity: 0.01
       short_circuit_trajectory_evaluation: True
       stateful: True
@@ -134,10 +194,29 @@ controller_server:
       # vers le but. Suivre le chemin domine, mais DWB garde la liberte de
       # s'en ecarter pour eviter un obstacle.
       PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.15
+      PathAlign.forward_point_distance: 0.325
       GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.15
-      PathDist.scale: 32.0
+      GoalAlign.forward_point_distance: 0.325
+      # ADHERENCE AU CHEMIN GLOBAL, le vert de RViz. Il n'existe pas de
+      # "tolerance" pour cela : ce sont ces poids qui decident si le robot colle
+      # a son chemin ou s'en ecarte. PathDist penalise l'ECART LATERAL au
+      # chemin, PathAlign le desalignement de cap ; GoalDist et GoalAlign tirent
+      # vers le BUT en ligne droite. Avec 32 contre 24, le chemin ne l'emportait
+      # que d'un tiers : sur une capture RViz, le chemin vert finissait en haut a
+      # droite du robot pendant que sa trajectoire locale partait a gauche.
+      # 48 contre 24 : le chemin pese desormais le DOUBLE du tir direct au but.
+      #
+      # forward_point_distance passe de 0.15 a 0.325, LE DEFAUT DE NAV2. Les
+      # criteres d'alignement notent un point projete devant le robot : a 0.15 m
+      # ce point est presque sur lui, et la mesure d'alignement devient peu
+      # sensible. C'etait diviser par deux l'effet des deux critere de cap.
+      #
+      # NE PAS MONTER BEAUCOUP PLUS HAUT. Un PathDist qui ecrase tout rend le
+      # robot RIGIDE : il refuse de s'ecarter du chemin pour contourner un
+      # obstacle apparu depuis, et se bloque au lieu de devier. Le reglage est un
+      # equilibre entre "il coupe les virages" et "il ne sait plus eviter".
+      # Pour revenir en arriere : PathDist 32, forward_point_distance 0.15.
+      PathDist.scale: 48.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
       RotateToGoal.slowing_factor: 5.0
@@ -184,6 +263,15 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+      # RETOUR A 5 Hz. Je l avais monte a 10 pour l aligner sur
+      # controller_frequency, sur un raisonnement -- jamais sur une mesure. Cela
+      # double le travail de raytracing du costmap, et le controleur BLOQUE sur le
+      # verrou du costmap pendant sa mise a jour.
+      # Symptome constate ensuite : le controleur tournait a 2,17 a 5,76 Hz au lieu
+      # de 10, tout en n utilisant que 43 % d UN coeur sur six -- donc il ATTENDAIT,
+      # il ne calculait pas. La machine avait 65 % d inactivite (213 % sur 600 %).
+      # 5 Hz reste deux fois la cadence du lidar (2,5 scans par mise a jour) : on ne
+      # perd aucune information reelle, le lidar ne fournit rien de plus vite.
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
@@ -319,8 +407,38 @@ global_costmap:
         # large sature la carte, les halos se recouvrent, le gradient s'aplatit
         # et le planificateur n'a plus rien pour se decider : il reprend le plus
         # court, donc il rase. Ne pas monter au-dela de 0.30 dans un interieur.
-        inflation_radius: 0.30
+        # 0.50 : BALAYAGE MESURE avec nodes/pathcheck.py dans le salon encombre,
+        # 8 buts a 45 degres d intervalle. Ecart minimal chemin/obstacle observe :
+        #   0.30 -> aucun chemin trouve, ou 0,03 m quand il en trouvait un
+        #   0.45 -> 6 buts sur 8, ecart typique 0,13 a 0,42 m
+        #   0.60 -> 5 buts sur 8, ecart typique 0,22 a 0,27 m
+        # Le robot fait 0,27 m de demi-largeur : a 0.30 la marge etait NEGATIVE de
+        # 24 cm, le chemin traversait l emprise du robot.
+        # 0.50 est le compromis : on garde la joignabilite de 0.45 et l essentiel de
+        # l ecart de 0.60. Monter plus haut reduit le nombre de buts atteignables
+        # sans ameliorer le PIRE cas.
+        #
+        # CE QUE CE REGLAGE NE PEUT PAS CORRIGER : le pire ecart reste a 0,04 m dans
+        # les trois cas. Cela signifie qu au moins un passage est PLUS ETROIT que le
+        # robot. Aucune inflation n y changera rien -- il faut degager le passage, ou
+        # ne pas y envoyer le robot.
+        #
+        # La note precedente disait "0.60 contre-productif, marge tombee a 0.00" : ce
+        # releve venait d une arene de test de 2x2 m avec un cylindre, pas d une
+        # piece meublee. Les deux mesures sont vraies dans leur contexte.
+        inflation_radius: 0.50
         cost_scaling_factor: 2.5
+      # TRUE, ET NE PAS LE REPASSER A FALSE. Je l avais mis a False pour soulager
+      # le WiFi -- un gain THEORIQUE, jamais mesure -- et cela a rendu le costmap
+      # global INOBTENABLE : ni /global_costmap/costmap ni son topic _updates ne
+      # publiaient plus rien. Consequences constatees :
+      #   . nodes/pathcheck.py, l outil qui MESURE la marge des chemins aux
+      #     obstacles, repondait "pas de costmap globale" ;
+      #   . l affichage du costmap global dans RViz ne recevait plus rien.
+      # Le publieur est pourtant RELIABLE + TRANSIENT_LOCAL : le probleme n est
+      # pas la QoS, c est qu il n y a plus aucun message a retenir.
+      # La congestion RViz que je cherchais a corriger venait en realite de la
+      # fraicheur des TF, pas du volume du costmap.
       always_send_full_costmap: True
 
 map_server:
@@ -345,9 +463,41 @@ planner_server:
       # abandonne TOUTE la pile, et bt_navigator reste unconfigured : les buts
       # ne sont plus recus du tout.
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.10
+      # 0.25 m et non 0.10 : distance a laquelle le planificateur s'autorise a
+      # viser une cellule VOISINE quand le but exact n'est pas joignable (but
+      # pose dans un halo d'inflation, ou a un centimetre d'un mur). A 0.10 il
+      # renoncait pour presque rien, avec
+      #   Failed to create plan with tolerance of: 0.1
+      # 25 cm sur un point de passage de tonte n'a aucune importance pratique.
+      tolerance: 0.25
       use_astar: true
-      allow_unknown: false
+      # allow_unknown A TRUE : LE PLANIFICATEUR PEUT TRAVERSER L'INCONNU.
+      #
+      # A false, combine a track_unknown_space: true du costmap global, le robot
+      # etait enferme dans les seules cellules DEJA VUES comme libres. MESURE
+      # sur la carte du salon : 83,4 % d'inconnu, 13,5 % de libre. Tout
+      # l'inconnu se comportait comme un MUR, meme la ou il n'y a rien. Une
+      # ligne droite vers un but traversant de l'inconnu etait donc INTERDITE,
+      # et le robot contournait par les minces couloirs deja cartographies -- ce
+      # qui ressemble a un defaut d'optimisation alors que c'est une
+      # interdiction. Et un but simplement entoure d'inconnu : aucun chemin.
+      #
+      # POUR UNE TONDEUSE C'EST LE REGLAGE INDISPENSABLE : couvrir un jardin
+      # veut precisement dire aller sur du terrain pas encore vu. Un robot qui
+      # refuse l'inconnu ne peut jamais explorer.
+      #
+      # CE QUE CELA IMPLIQUE, et il faut l'accepter : le robot planifie a
+      # travers du terrain qu'il n'a pas vu, donc il decouvre les obstacles en
+      # chemin et replanifie plus souvent. Il peut avancer vers un mur qu'il
+      # ignore jusqu'a ce que le lidar le revele. Ce n'est pas dangereux : le
+      # costmap LOCAL et le contour reel l'arretent. Mais les trajets sont moins
+      # directs qu'avec une carte complete. C'est le prix de l'exploration, et
+      # il ne se paie qu'une fois par zone.
+      #
+      # On GARDE track_unknown_space: true dans le costmap : l'inconnu reste
+      # ainsi distinct du libre a l'affichage et dans les couts. Seul le
+      # planificateur s'autorise a le franchir.
+      allow_unknown: true
 
 smoother_server:
   ros__parameters:
@@ -379,7 +529,7 @@ behavior_server:
     # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
     # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
     # a resserrer si un jour le SLAM publie plus vite.
-    transform_tolerance: 0.6
+    transform_tolerance: 1.0
     max_rotational_vel: 0.15
     min_rotational_vel: 0.05
     rotational_acc_lim: 2.0
@@ -434,7 +584,7 @@ collision_monitor:
     # Ce n'est pas gratuit : nav2 accepte de planifier sur une pose vieille de
     # 0.6 s, soit 18 cm parcourus a 0.30 m/s. Acceptable pour une tondeuse ;
     # a resserrer si un jour le SLAM publie plus vite.
-    transform_tolerance: 0.6
+    transform_tolerance: 1.0
     source_timeout: 1.0
     base_shift_correction: True
     stop_pub_timeout: 2.0
