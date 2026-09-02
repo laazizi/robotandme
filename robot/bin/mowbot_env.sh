@@ -129,7 +129,7 @@ fi
 # regle udev sur le critere le plus stable disponible : serial unique, sinon
 # vendor:product unique, sinon port physique.
 # Debit serie de l'ESP32 : DOIT correspondre a SERIAL_BAUDRATE dans
-# main/config.h du firmware. Un ecart et l'agent ne dialogue pas du tout.
+# controllers/common/base/config.h du firmware. Un ecart et l'agent ne dialogue pas du tout.
 export MOWBOT_ESP32_BAUD="${MOWBOT_ESP32_BAUD:-460800}"
 
 export DEV_ESP32="/dev/mowbot_esp32"

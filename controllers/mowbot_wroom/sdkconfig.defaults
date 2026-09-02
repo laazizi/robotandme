@@ -1,0 +1,6 @@
+# mowbot_wroom : cible ESP32 classique (Xtensa). Aucune option propre.
+# CONFIG_IDF_TARGET est LA source de verite de la cible : scripts/build.sh le
+# lit ici pour set-target et pour savoir quelle libmicroros reconstruire
+# (une libmicroros.a RISC-V du P4 ferait echouer le linker Xtensa avec
+# "relocations in generic ELF (EM: 243)").
+CONFIG_IDF_TARGET="esp32"

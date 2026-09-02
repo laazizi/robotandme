@@ -1,3 +1,11 @@
+# ============================================================================
+# NON ADAPTE au decoupage en controleurs (controllers/, septembre 2026).
+# Ce script suppose le projet ESP-IDF A LA RACINE (sdkconfig, main/, build/),
+# disposition qui n'existe plus. Sous Linux / WSL2, utiliser :
+#     ./scripts/build.sh <controleur> [build|clean|menuconfig] [serial|eth]
+#     ./scripts/flash.sh <controleur> [/dev/ttyACM0] [monitor]
+# A reprendre si le build Windows redevient necessaire.
+# ============================================================================
 # Flashe le firmware depuis Windows, directement sur le port COM (esptool).
 # Pas besoin d'IDF ni de Docker : juste Python + 'pip install esptool'.
 #

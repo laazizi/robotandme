@@ -30,7 +30,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from nav_msgs.msg import Odometry
 
-# --- constantes ACTUELLES du firmware (main/config.h) ---
+# --- constantes ACTUELLES du firmware (controllers/<robot>/main/robot.h, ex-main/config.h) ---
 WHEEL_RADIUS_M      = 0.0698
 TICKS_PER_WHEEL_REV = 2560.0
 TRACK_WIDTH_M       = 0.59
@@ -101,7 +101,7 @@ def main():
     print("=" * 62)
     print(f" TOTAL  gauche = {tl:+.0f} ticks   droite = {tr:+.0f} ticks")
     print(" Si la roue a fait exactement 1 tour -> c'est la valeur a mettre")
-    print(" dans TICKS_PER_WHEEL_REV (main/config.h).")
+    print(" dans TICKS_PER_WHEEL_REV (controllers/<robot>/main/robot.h).")
     print("=" * 62)
     n.destroy_node()
     rclpy.shutdown()

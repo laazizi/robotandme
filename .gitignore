@@ -1,4 +1,5 @@
-# Build ESP-IDF
+# Build ESP-IDF -- ces motifs sans "/" initial s'appliquent a toute profondeur,
+# donc a chaque controllers/<nom>/build et controllers/<nom>/sdkconfig.
 build/
 sdkconfig
 sdkconfig.old
@@ -6,7 +7,7 @@ app-colcon.meta
 dependencies.lock
 managed_components/
 
-# Composant micro-ROS (cloné, voir README)
+# Composant micro-ROS (cloné ou copié, voir controllers/README.md)
 components/micro_ros_espidf_component/
 
 # IDE
@@ -15,7 +16,3 @@ components/micro_ros_espidf_component/
 
 __pycache__/
 *.pyc
-
-build_esp32/
-sdkconfig.esp32board
-sdkconfig.esp32board.old

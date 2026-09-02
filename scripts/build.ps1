@@ -1,3 +1,11 @@
+# ============================================================================
+# NON ADAPTE au decoupage en controleurs (controllers/, septembre 2026).
+# Ce script suppose le projet ESP-IDF A LA RACINE (sdkconfig, main/, build/),
+# disposition qui n'existe plus. Sous Linux / WSL2, utiliser :
+#     ./scripts/build.sh <controleur> [build|clean|menuconfig] [serial|eth]
+#     ./scripts/flash.sh <controleur> [/dev/ttyACM0] [monitor]
+# A reprendre si le build Windows redevient necessaire.
+# ============================================================================
 # Compile le firmware dans Docker (image officielle ESP-IDF v5.5 + deps micro-ROS).
 # Le composant micro-ROS ne se compile que sous Linux : Docker evite d'installer WSL2/IDF.
 #

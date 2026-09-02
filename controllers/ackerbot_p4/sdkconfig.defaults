@@ -1,0 +1,7 @@
+# ackerbot_p4 : cible et options propres a l'ESP32-P4 (memes que mowbot_p4).
+# CONFIG_IDF_TARGET est LA source de verite de la cible : scripts/build.sh le
+# lit ici pour set-target et pour savoir quelle libmicroros reconstruire.
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESP32P4_REV_MIN_100=y
+CONFIG_ESP_HOSTED_ENABLED=n

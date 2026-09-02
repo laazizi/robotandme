@@ -46,7 +46,7 @@ Ensuite : EKF (`ros2 launch ./ros2/bringup.launch.py`) et teleop, cf.
   artefacts sont partiels (témoin : `include/rcl`), nettoyage dans le conteneur
   (MAX_PATH).
 - **flash.ps1** : même correctif `cmd /c` sur le check esptool (commit `save`).
-- **sdkconfig.defaults** : puce = **ESP32-P4 v1.3** (échantillon pré-série).
+- **controllers/mowbot_p4/sdkconfig.defaults** : puce = **ESP32-P4 v1.3** (échantillon pré-série).
   IDF v5.5 vise v3.1+ et refusait le flash → `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`
   + `CONFIG_ESP32P4_REV_MIN_100=y`.
 - **esptool** installé sur le PC Windows (`pip install esptool`, v5.3.1).
@@ -57,7 +57,8 @@ Ensuite : EKF (`ros2 launch ./ros2/bringup.launch.py`) et teleop, cf.
 
 - **Port COM = COM20** (pont CH343 wch.cn). COM7/COM8 sont du Bluetooth.
 - **Binaire lié à la révision** : compilé pour v1.x, il ne bootera PAS sur un
-  P4 v3.x de production. Retirer les 2 lignes de révision de `sdkconfig.defaults`
+  P4 v3.x de production. Retirer les 2 lignes de révision de
+  `controllers/mowbot_p4/sdkconfig.defaults` (et `ackerbot_p4/`)
   et recompiler le jour du passage en silicium définitif.
 - **Changer de transport** (série↔eth) reconstruit libmicroros (~15-20 min) ;
   géré par build.ps1 mais c'est long.
@@ -68,5 +69,6 @@ Ensuite : EKF (`ros2 launch ./ros2/bringup.launch.py`) et teleop, cf.
 ## Reste à faire (au-delà de la reprise)
 
 Voir la section « Reste à faire » de [CLAUDE.md](CLAUDE.md) : bascule
-Ethernet/UDP pour le produit final (IP de l'agent dans `sdkconfig.eth`),
+Ethernet/UDP pour le produit final (IP de l'agent dans
+  `controllers/common/sdkconfig.eth`),
 GPS RTK, coverage planning, contrôle lame + sécurités, nav2.

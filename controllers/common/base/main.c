@@ -1,9 +1,18 @@
-// mowbot — contrôleur diffdrive micro-ROS pour ESP32-P4 + MDD10A rev2.0
+// Boucle COMMUNE a tous les controleurs (voir controllers/README.md).
 //
-//   sub /cmd_vel (geometry_msgs/Twist)  → cinématique inverse → PID vitesse/roue → PWM+DIR
-//   encodeurs (PCNT matériel)           → odométrie → pub /odom (nav_msgs/Odometry) à 50 Hz
+//   sub /cmd_vel (geometry_msgs/Twist)  -> kin_apply_twist()  [cinematique du robot]
+//   timer a CONTROL_PERIOD_MS           -> kin_update()       [capteurs, odometrie, actionneurs]
+//                                       -> pub /odom (nav_msgs/Odometry) 1 cycle sur ODOM_PUBLISH_DIV
+//   IMU                                 -> pub /imu/data_raw (sensor_msgs/Imu)
 //
-// Deadman : moteurs coupés si aucun cmd_vel depuis CMD_VEL_TIMEOUT_MS.
+// Ce fichier ne sait PAS comment le robot roule. Tout ce qui depend de la
+// mecanique (diffdrive, Ackermann) est derriere l'interface kin.h, et UNE
+// seule implementation est compilee par controleur (main/CMakeLists.txt du
+// dossier du controleur).
+//
+// Deadman : kin_apply_twist(0, 0) si aucun cmd_vel depuis CMD_VEL_TIMEOUT_MS.
+// Chaque cinematique sait ce que "zero" veut dire pour elle : moteurs coupes,
+// et en Ackermann roues droites en plus.
 
 #include <math.h>
 #include <stdlib.h>
@@ -32,20 +41,17 @@
 #endif
 
 #include "config.h"
-#include "encoders.h"
 #include "imu.h"
-#include "motors.h"
-#include "odometry.h"
-#include "pid.h"
+#include "kin.h"
 
-static const char *TAG = "mowbot";
+static const char *TAG = ROBOT_NODE_NAME;
 
 #define RCCHECK(fn)                                                          \
     do {                                                                     \
         rcl_ret_t rc_ = (fn);                                                \
         if (rc_ != RCL_RET_OK) {                                             \
             ESP_LOGE(TAG, "rcl error %d ligne %d", (int)rc_, __LINE__);      \
-            motors_stop();                                                   \
+            kin_stop();                                                      \
             vTaskDelete(NULL);                                               \
         }                                                                    \
     } while (0)
@@ -66,25 +72,10 @@ static nav_msgs__msg__Odometry s_odom_msg;
 static sensor_msgs__msg__Imu s_imu_msg;
 static bool s_imu_present;
 
-// Consignes vitesse roue [m/s] : écrites par le callback cmd_vel,
-// lues par le timer de contrôle (même executor → pas de concurrence).
-static float s_target_left;
-static float s_target_right;
+// Date du dernier cmd_vel : ecrite par le callback, lue par le timer de
+// controle (meme executor -> pas de concurrence).
 static TickType_t s_last_cmd_tick;
-
-static pid_ctrl_t s_pid_left;
-static pid_ctrl_t s_pid_right;
-static odom_state_t s_odom;
-static int64_t s_prev_ticks_left;
-static int64_t s_prev_ticks_right;
-
-static const float METERS_PER_TICK =
-    2.0f * (float)M_PI * WHEEL_RADIUS_M / TICKS_PER_WHEEL_REV;
-
-static float clampf(float v, float lo, float hi)
-{
-    return v < lo ? lo : (v > hi ? hi : v);
-}
+static kin_odom_t s_odom;
 
 static void ros_string_set(rosidl_runtime_c__String *str, const char *literal)
 {
@@ -139,6 +130,15 @@ static void imu_msg_init(void)
     }
 }
 
+static void stamp_now(builtin_interfaces__msg__Time *stamp)
+{
+    if (rmw_uros_epoch_synchronized()) {
+        int64_t ns = rmw_uros_epoch_nanos();
+        stamp->sec = (int32_t)(ns / 1000000000LL);
+        stamp->nanosec = (uint32_t)(ns % 1000000000LL);
+    }
+}
+
 static void imu_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
 {
     (void)timer;
@@ -149,11 +149,7 @@ static void imu_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
         return;
     }
 
-    if (rmw_uros_epoch_synchronized()) {
-        int64_t ns = rmw_uros_epoch_nanos();
-        s_imu_msg.header.stamp.sec = (int32_t)(ns / 1000000000LL);
-        s_imu_msg.header.stamp.nanosec = (uint32_t)(ns % 1000000000LL);
-    }
+    stamp_now(&s_imu_msg.header.stamp);
     s_imu_msg.angular_velocity.x = sample.gx;
     s_imu_msg.angular_velocity.y = sample.gy;
     s_imu_msg.angular_velocity.z = sample.gz;
@@ -167,25 +163,15 @@ static void imu_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
 static void cmd_vel_callback(const void *msg_in)
 {
     const geometry_msgs__msg__Twist *msg = (const geometry_msgs__msg__Twist *)msg_in;
-    float v = (float)msg->linear.x;
-    float w = (float)msg->angular.z;
-
-    // Cinématique inverse diffdrive
-    s_target_left = clampf(v - w * TRACK_WIDTH_M * 0.5f,
-                           -MAX_WHEEL_SPEED_MPS, MAX_WHEEL_SPEED_MPS);
-    s_target_right = clampf(v + w * TRACK_WIDTH_M * 0.5f,
-                            -MAX_WHEEL_SPEED_MPS, MAX_WHEEL_SPEED_MPS);
+    // La cinematique du robot traduit (v, w) en consignes d'actionneurs ; si
+    // la demande est impossible pour cette mecanique, elle le journalise.
+    kin_apply_twist((float)msg->linear.x, (float)msg->angular.z);
     s_last_cmd_tick = xTaskGetTickCount();
 }
 
 static void odom_publish(void)
 {
-    if (rmw_uros_epoch_synchronized()) {
-        int64_t ns = rmw_uros_epoch_nanos();
-        s_odom_msg.header.stamp.sec = (int32_t)(ns / 1000000000LL);
-        s_odom_msg.header.stamp.nanosec = (uint32_t)(ns % 1000000000LL);
-    }
-
+    stamp_now(&s_odom_msg.header.stamp);
     s_odom_msg.pose.pose.position.x = s_odom.x;
     s_odom_msg.pose.pose.position.y = s_odom.y;
     s_odom_msg.pose.pose.orientation.z = sinf(s_odom.theta * 0.5f);
@@ -204,45 +190,15 @@ static void control_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
         dt = CONTROL_PERIOD_MS / 1000.0f;
     }
 
-    // Deadman : agent déconnecté ou teleop arrêté → stop
+    // Deadman : agent déconnecté ou teleop arrêté → consigne nulle
     if ((xTaskGetTickCount() - s_last_cmd_tick) > pdMS_TO_TICKS(CMD_VEL_TIMEOUT_MS)) {
-        s_target_left = 0.0f;
-        s_target_right = 0.0f;
+        kin_apply_twist(0.0f, 0.0f);
     }
 
-    int64_t ticks_left = encoder_get_ticks(ENCODER_LEFT);
-    int64_t ticks_right = encoder_get_ticks(ENCODER_RIGHT);
-    float d_left = (float)(ticks_left - s_prev_ticks_left) * METERS_PER_TICK;
-    float d_right = (float)(ticks_right - s_prev_ticks_right) * METERS_PER_TICK;
-    s_prev_ticks_left = ticks_left;
-    s_prev_ticks_right = ticks_right;
+    kin_update(dt, &s_odom);
 
-    odometry_update(&s_odom, d_left, d_right, dt);
-
-    float v_left = d_left / dt;
-    float v_right = d_right / dt;
-
-    // FEED-FORWARD + PID par roue : le FF envoie d'emblee le duty theorique
-    // (cible / vitesse max), le PID ne corrige que l'ecart (charge, pente).
-    // FF_GAIN=0 -> PID pur (robot 12 V, valide ainsi). Consigne nulle :
-    // moteur coupe + reset PID (pas de freinage actif -> pas d'oscillation).
-    if (s_target_left == 0.0f) {
-        pid_reset(&s_pid_left);
-        motors_set(MOTOR_LEFT, 0.0f);
-    } else {
-        float ff = FF_GAIN * clampf(s_target_left / MAX_WHEEL_SPEED_MPS, -1.0f, 1.0f);
-        motors_set(MOTOR_LEFT, clampf(ff + pid_update(&s_pid_left, s_target_left, v_left, dt), -1.0f, 1.0f));
-    }
-    if (s_target_right == 0.0f) {
-        pid_reset(&s_pid_right);
-        motors_set(MOTOR_RIGHT, 0.0f);
-    } else {
-        float ff = FF_GAIN * clampf(s_target_right / MAX_WHEEL_SPEED_MPS, -1.0f, 1.0f);
-        motors_set(MOTOR_RIGHT, clampf(ff + pid_update(&s_pid_right, s_target_right, v_right, dt), -1.0f, 1.0f));
-    }
-
-    // Le PID tourne à 50 Hz (fluide) mais on ne publie /odom qu'1 cycle sur
-    // ODOM_PUBLISH_DIV (-> 10 Hz) pour rester sous la limite du série 115200.
+    // La boucle tourne à 50 Hz (fluide) mais on ne publie /odom qu'1 cycle sur
+    // ODOM_PUBLISH_DIV (-> 10 Hz) pour rester sous la limite du série.
     static int publish_div = 0;
     if (++publish_div >= ODOM_PUBLISH_DIV) {
         publish_div = 0;
@@ -274,7 +230,7 @@ static void micro_ros_task(void *arg)
     ESP_LOGI(TAG, "connecté au micro-ros-agent");
 
     rcl_node_t node;
-    RCCHECK(rclc_node_init_default(&node, "mowbot_base", "", &support));
+    RCCHECK(rclc_node_init_default(&node, ROBOT_NODE_NAME, "", &support));
 
     RCCHECK(rclc_subscription_init_default(
         &s_sub_cmd_vel, &node,
@@ -321,51 +277,6 @@ static void micro_ros_task(void *arg)
     }
 }
 
-// --- TEST BANC AU BOOT (active par BOOT_BENCH_TEST dans config.h) ------------
-// Fait tourner UNE roue a la fois (2 s avant, 2 s arriere) et logge le delta
-// de ticks des DEUX encodeurs a chaque phase.
-#if BOOT_BENCH_TEST
-static void boot_test_phase(const char *nom, motor_id_t motor, float duty)
-{
-    const TickType_t DUREE = pdMS_TO_TICKS(2000);
-    int64_t g0 = encoder_get_ticks(ENCODER_LEFT);
-    int64_t d0 = encoder_get_ticks(ENCODER_RIGHT);
-    motors_set(motor, duty);
-    vTaskDelay(DUREE);
-    motors_stop();
-    int64_t dg = encoder_get_ticks(ENCODER_LEFT) - g0;
-    int64_t dd = encoder_get_ticks(ENCODER_RIGHT) - d0;
-    ESP_LOGW(TAG, "%-16s : enc_G=%+6lld  enc_D=%+6lld",
-             nom, (long long)dg, (long long)dd);
-    vTaskDelay(pdMS_TO_TICKS(500));
-}
-
-static void boot_test_run(void)
-{
-    const float DUTY = 0.25f;
-    ESP_LOGW(TAG, "==== TEST BANC PAR ROUE (2 s/phase, roues en l'air !) ====");
-    ESP_LOGW(TAG, "attendu : la roue testee compte FORT (+ en avant, - en arriere),");
-    ESP_LOGW(TAG, "          l'autre encodeur reste ~0. Sinon : 0=muet, signe=INVERT,");
-    ESP_LOGW(TAG, "          mauvais compteur=cables croises G/D.");
-    boot_test_phase("G avant  (+)", MOTOR_LEFT,  +DUTY);
-    boot_test_phase("G arriere(-)", MOTOR_LEFT,  -DUTY);
-    boot_test_phase("D avant  (+)", MOTOR_RIGHT, +DUTY);
-    boot_test_phase("D arriere(-)", MOTOR_RIGHT, -DUTY);
-
-    // Phase "a la main" : 30 s d'affichage des compteurs bruts, 1 fois/s.
-    // Tournez les roues a la main et regardez les valeurs bouger.
-    ESP_LOGW(TAG, "---- TEST A LA MAIN : tournez les roues (30 s) ----");
-    for (int i = 0; i < 30; i++) {
-        ESP_LOGW(TAG, "t=%2ds  enc_G=%+8lld  enc_D=%+8lld", i,
-                 (long long)encoder_get_ticks(ENCODER_LEFT),
-                 (long long)encoder_get_ticks(ENCODER_RIGHT));
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-    ESP_LOGW(TAG, "==== FIN TEST BANC ====");
-}
-#endif  // BOOT_BENCH_TEST
-// -----------------------------------------------------------------------------
-
 void app_main(void)
 {
 #if defined(RMW_UXRCE_TRANSPORT_CUSTOM)
@@ -379,12 +290,8 @@ void app_main(void)
     ESP_ERROR_CHECK(uros_network_interface_initialize());
 #endif
 
-    // Matériel initialisé (et moteurs à zéro) avant tout le reste
-    motors_init();
-    motors_stop();
-    encoders_init();
-    pid_init(&s_pid_left, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
-    pid_init(&s_pid_right, PID_KP, PID_KI, PID_KD, -1.0f, 1.0f);
+    // Matériel de la cinematique initialisé, robot a l'arret, avant tout le reste
+    kin_init();
 
     // Calibration gyro au boot, robot immobile (~1 s)
     s_imu_present = imu_init();
@@ -392,16 +299,11 @@ void app_main(void)
         imu_calibrate_gyro();
     }
 
-    // --- TEST BOOT DOUX : ~1 cm avant / ~1 cm arriere (TEMPORAIRE) ---------
-    // Valide moteurs + encodeurs + sens SANS deplacement dangereux : arret en
-    // Chaque roue testee SEPAREMENT : 2 s en avant puis 2 s en arriere, en
-    // affichant les compteurs des DEUX encodeurs a chaque phase, puis 30 s de
-    // compteurs pour test a la main. Active par BOOT_BENCH_TEST (config.h),
-    // a flasher via banc.sh. ROUES EN L'AIR !
+    // Test au banc, ROUES EN L'AIR, active par BOOT_BENCH_TEST (config.h).
+    // Chaque cinematique fournit le sien.
 #if BOOT_BENCH_TEST
-    boot_test_run();
+    kin_bench_test();
 #endif
-    // --- FIN TEST BOOT ------------------------------------------------------
 
     xTaskCreate(micro_ros_task, "uros_task", 16384, NULL, 5, NULL);
 }

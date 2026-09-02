@@ -98,23 +98,27 @@ bash ~/save_map.sh
 
 ## 🔧 Firmware ESP32 (depuis le PC)
 
-Deux robots, deux cibles — les réglages sont **séparés** dans `main/config.h` :
+**Un contrôleur = un dossier** dans `controllers/` ; les réglages de chaque robot
+sont dans `controllers/<robot>/main/robot.h`, le code commun dans `controllers/common/`.
 
 ```bash
 cd ~/perso/code/robot/robot01/mowbot
 source ~/esp/esp-idf/export.sh
 
-./scripts/build.sh            # robot 12 V  (ESP32-P4)   -> build/
-./scripts/build_esp32.sh      # robot 24 V  (DevKitC)    -> build_esp32/
+./scripts/build.sh mowbot_p4      # robot 12 V  (ESP32-P4)  -> controllers/mowbot_p4/build/mowbot_p4.bin
+./scripts/build.sh mowbot_wroom   # robot 24 V  (DevKitC)   -> controllers/mowbot_wroom/build/mowbot_wroom.bin
+./scripts/build.sh ackerbot_p4    # Ackermann   (ESP32-P4)  -> controllers/ackerbot_p4/build/ackerbot_p4.bin
 ```
 
-Flasher la DevKitC branchée sur le Jetson :
+Flasher la DevKitC branchée sur le Jetson (le script `flash32.sh` côté Jetson
+attend `mowbot.bin` : on garde ce nom à destination) :
 ```bash
-scp build_esp32/mowbot.bin nvidia@192.168.1.26:/home/nvidia/fw32/
+scp controllers/mowbot_wroom/build/mowbot_wroom.bin nvidia@192.168.1.26:/home/nvidia/fw32/mowbot.bin
 ssh nvidia@192.168.1.26 'bash ~/flash32.sh'
 ```
 
-⚠️ Changer de cible (P4 ↔ DevKitC) recompile la lib micro-ROS (~10 min).
+⚠️ Changer de **cible** (P4 ↔ DevKitC) recompile la lib micro-ROS (~10-15 min) ;
+passer de `mowbot_p4` à `ackerbot_p4` (même puce) ne la recompile pas.
 
 ---
 

@@ -51,7 +51,7 @@ Décisions d'architecture détaillées (et leur pourquoi) : voir [CLAUDE.md](CLA
 | Encodeurs | quadrature A/B, sorties **3,3 V** (le P4 n'est **pas** tolérant 5 V) |
 | IMU | ICM-42688-P en I2C (gyro yaw = cap court terme ; pas de magnéto) |
 
-### Câblage (par défaut, dans [`main/config.h`](main/config.h))
+### Câblage (par défaut, dans [`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h))
 
 | Signal | GPIO P4 | Vers |
 |---|---|---|
@@ -104,18 +104,25 @@ compile libmicroros (~15-20 min, ~2 Go d'image) ; les suivants sont incrémentau
   transport **reconstruit libmicroros** (géré par le script, mais c'est long).
 - **Révision de puce** : les cartes EV pré-série embarquent un **ESP32-P4 v1.3**.
   IDF v5.5 vise le silicium v3.1+ par défaut ; le support des révisions <3.0 est
-  activé dans [`sdkconfig.defaults`](sdkconfig.defaults). ⚠️ un binaire compilé
+  activé dans [`controllers/mowbot_p4/sdkconfig.defaults`](controllers/mowbot_p4/sdkconfig.defaults)
+  (idem `ackerbot_p4`). ⚠️ un binaire compilé
   ainsi ne bootera **pas** sur une puce v3.x de production (retirer les 2 lignes
   `ESP32P4_REV_*` le jour venu).
 
-<details>
-<summary>Build natif Linux / WSL2 (ESP-IDF v5.5 installé)</summary>
+⚠️ Les scripts `.ps1` ci-dessus datent de l'époque où le projet ESP-IDF était à
+la racine ; ils **n'ont pas été adaptés** au découpage en contrôleurs
+(`controllers/`, voir ci-dessous). Sous Linux / WSL2, c'est la voie de référence :
 
 ```bash
-./scripts/build.sh                    # ou : build.sh clean | build.sh menuconfig
-./scripts/flash.sh /dev/ttyUSB0 monitor
+. ~/esp/esp-idf/export.sh
+./scripts/build.sh mowbot_p4                 # <mowbot_p4|mowbot_wroom|ackerbot_p4> [build|clean|menuconfig] [serial|eth]
+./scripts/flash.sh mowbot_p4 /dev/ttyACM0 monitor
 ```
-</details>
+
+**Un contrôleur = un dossier** dans [`controllers/`](controllers/README.md) :
+`main/robot.h` (broches, géométrie, gains), `main/CMakeLists.txt` (choix de la
+cinématique diffdrive ou Ackermann), `sdkconfig.defaults` (cible). Le code
+commun est dans `controllers/common/`. Chaque contrôleur a son propre `build/`.
 
 ## Démarrer avec ROS 2
 
@@ -196,15 +203,15 @@ déconnecté, teleop fermé…).
 **Robot sur cales, roues en l'air**, avant tout essai au sol.
 
 - Un **auto-test moteurs temporaire** est actuellement câblé dans
-  [`main/app_main`](main/main.c) : au boot, les deux roues tournent en avant 1 s
+  [`app_main`](controllers/common/base/main.c) : au boot, les deux roues tournent en avant 1 s
   puis en arrière 1 s (logs `TEST MOTEURS : …`). Il sert à valider le câblage et
   le sens de rotation, **à retirer** ensuite.
 - **Sens de rotation** : si une roue tourne à l'envers, inverser son flag
-  `MOTOR_L_INVERT` / `MOTOR_R_INVERT` dans [`main/config.h`](main/config.h) ; si
+  `MOTOR_L_INVERT` / `MOTOR_R_INVERT` dans [`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h) ; si
   le robot recule quand il devrait avancer, inverser **les deux**. Même logique
   avec `ENC_L_INVERT` / `ENC_R_INVERT` si `/odom` décroît en marche avant.
 
-## Paramètres à calibrer ([`main/config.h`](main/config.h))
+## Paramètres à calibrer ([`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h))
 
 1. `TICKS_PER_WHEEL_REV` — ticks par tour de roue (×4 quadrature, réducteur inclus).
 2. `WHEEL_RADIUS_M` — pousser le robot sur 2 m, comparer à `/odom`.
@@ -235,12 +242,19 @@ déconnecté, teleop fermé…).
 ## Structure du dépôt
 
 ```
-main/            firmware ESP-IDF (main.c, motors, encoders, imu, odometry, pid, config.h)
-scripts/         build/flash/monitor — .ps1 (Windows+Docker) et .sh (Linux/WSL2)
-sdkconfig.*      defaults + profils de transport (serial | eth)
-ros2/            côté SBC : EKF (ekf.yaml, bringup.launch.py) + README
-components/      composant micro-ROS (cloné au 1er build, gitignoré)
+controllers/     firmware ESP-IDF, UN DOSSIER PAR CONTRÔLEUR (voir controllers/README.md)
+  common/          code partagé : base/ (main.c, config.h, kin.h, pid, imu, encoders,
+                   transport), kin_diffdrive/, kin_ackermann/, profils sdkconfig
+  mowbot_p4/       robot A, diffdrive, Waveshare ESP32-P4-ETH, 12 V — calibré
+  mowbot_wroom/    robot B, diffdrive, ESP32-WROOM DevKitC, 24 V
+  ackerbot_p4/     robot Ackermann, ESP32-P4 — jamais flashé, placeholders
+scripts/         build.sh / flash.sh <contrôleur> (Linux/WSL2) ; .ps1 non adaptés
+robot/           côté SBC (Jetson) : bin/, config/ (nav2, slam, ekf), nodes/, launch/, systemd/
+pc/              côté PC : waypoints.py, outils RViz
+ros2/            ancien dossier SBC (EKF, bringup) — voir robot/ pour l'actuel
+components/      composant micro-ROS (cloné ou copié au 1er build, gitignoré)
 CLAUDE.md        contexte & décisions d'architecture
+COMMANDES.md     mémo des commandes courantes
 HANDOFF.md       note de passation (état, point de reprise)
 ```
 
