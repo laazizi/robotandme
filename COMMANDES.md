@@ -5,7 +5,13 @@ Deux machines :
 | | Adresse | Rôle |
 |---|---|---|
 | **Jetson** (robot) | `ssh nvidia@192.168.1.26` (mdp `nvidia`) | tout le logiciel embarqué |
-| **PC** | `~/perso/code/robot/robot01/mowbot/ros2` | RViz, pilotage, développement |
+| **PC** | `~/perso/code/robot/mowbot/pc` | RViz, pilotage, développement |
+
+> ⚠️ **Deux SBC ont servi** à ce robot : une Jetson Orin Nano et une Jetson NX
+> (relevée à `192.168.1.33` en septembre 2026). L'IP ci-dessus est celle notée
+> dans ce mémo ; elle **change avec le réseau WiFi** et selon la carte branchée.
+> Vérifier laquelle est en service avant de s'y fier — la méthode par adresse
+> MAC ci-dessous est la seule fiable.
 
 > L'IP du Jetson change avec le réseau WiFi. Pour la retrouver :
 > ```bash
@@ -25,7 +31,7 @@ Il n'y a donc **rien à taper** sur le Jetson.
 
 Sur le **PC**, pour voir et piloter :
 ```bash
-cd ~/perso/code/robot/robot01/mowbot/ros2
+cd ~/perso/code/robot/mowbot/pc
 ./robot_nav.sh        # RViz : carte, scan lidar, plan, robot
 ```
 Dans RViz : **2D Goal Pose** = envoyer le robot quelque part.
@@ -102,7 +108,7 @@ bash ~/save_map.sh
 sont dans `controllers/<robot>/main/robot.h`, le code commun dans `controllers/common/`.
 
 ```bash
-cd ~/perso/code/robot/robot01/mowbot
+cd ~/perso/code/robot/mowbot
 source ~/esp/esp-idf/export.sh
 
 ./scripts/build.sh mowbot_p4      # robot 12 V  (ESP32-P4)  -> controllers/mowbot_p4/build/mowbot_p4.bin

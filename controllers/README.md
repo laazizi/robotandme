@@ -70,6 +70,14 @@ depuis zéro sort en UDP et la compilation échoue sur
 le plus de temps ici, parce que le script Linux ne connaissait pas ce mécanisme
 et marchait par chance sur une bibliothèque déjà construite.
 
+### Si tu déplaces le dépôt
+
+Le cache CMake **fige le chemin absolu** du projet : après un déplacement, tout
+`build/` devient inutilisable et `idf.py` refuse de démarrer sur un message peu
+parlant (*Build directory … configured for project … in a different directory*).
+`build.sh` détecte le décalage et nettoie le `build/` concerné tout seul — rien
+à faire à la main.
+
 ## Ajouter un contrôleur
 
 1. Copier le dossier du contrôleur le plus proche (`cp -r mowbot_p4 monrobot`).

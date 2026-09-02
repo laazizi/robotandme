@@ -56,8 +56,18 @@ changement de `common/`, même en travaillant sur un autre robot.
 - Le P4 n'est pas tolérant 5 V : level shifter si encodeurs 5 V.
 - UART0 partagé logs/transport série : fermer le moniteur avant l'agent.
 - Le composant micro-ROS (branche humble, gitignoré dans `components/`) ne se
-  compile que sous Linux → build via Docker (`scripts/build.ps1`) ou WSL2.
-  Changer de transport exige un fullclean (géré par les scripts).
+  compile que sous Linux. Changer de transport ou de cible reconstruit
+  `libmicroros` (~15 min), géré par `scripts/build.sh`.
+- **Binaire lié à la révision de puce** : les P4 pré-série sont en v1.3 et le
+  support des révisions <3.0 est activé dans `controllers/mowbot_p4/sdkconfig.defaults`
+  (idem `ackerbot_p4`). Un binaire ainsi compilé **ne bootera pas** sur un P4
+  v3.x de production : retirer les deux lignes `ESP32P4_REV_*` le jour du
+  passage au silicium définitif.
+- **Ne pas toucher aux conteneurs Docker `server-*`** sur le poste de travail :
+  ils appartiennent à un autre travail de l'utilisateur. Et ne jamais lancer
+  `docker image prune -a` sans épingler l'image ESP-IDF (14 Go à retélécharger).
+- Les scripts `scripts/*.ps1` (Windows + Docker) datent de la disposition
+  antérieure et n'ont pas été adaptés aux contrôleurs.
 
 ## Commandes
 

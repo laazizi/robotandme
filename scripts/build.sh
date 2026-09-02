@@ -125,6 +125,20 @@ if [ "$HAVE" != "$WANT" ] || [ ! -e "$COMPONENT/libmicroros.a" ] || [ ! -d "$COM
     rm -f "$MARKER"
 fi
 
+# Le cache CMake FIGE le chemin absolu du projet : deplacer le depot rend tout
+# build/ inutilisable, avec un message peu parlant
+#   "Build directory ... configured for project ... in a different directory"
+# et idf.py refuse de continuer. Plutot que d'exiger un fullclean manuel, on
+# detecte le decalage et on repart proprement pour CE controleur.
+CACHE="$DIR/build/CMakeCache.txt"
+if [ -f "$CACHE" ]; then
+    CACHED_DIR="$(grep -m1 '^CMAKE_HOME_DIRECTORY:INTERNAL=' "$CACHE" | cut -d= -f2- || true)"
+    if [ -n "$CACHED_DIR" ] && [ "$CACHED_DIR" != "$ROOT/$DIR" ]; then
+        echo ">> build/ configure pour un autre chemin ($CACHED_DIR) : nettoyage."
+        rm -rf "$DIR/build"
+    fi
+fi
+
 cd "$DIR"
 
 if [ "$TRANSPORT" != "$CURRENT" ] && [ -f sdkconfig ]; then

@@ -1,271 +1,189 @@
 # mowbot
 
-Contrôleur diffdrive **micro-ROS** sur **ESP32-P4** pour une tondeuse robot
-autonome. Le firmware ESP-IDF s'abonne à `/cmd_vel`, applique un PID de vitesse
-par roue vers un driver **Cytron MDD10A rev 2.0**, mesure l'odométrie par
-encodeurs quadrature (comptage matériel PCNT) et publie `/odom` à 50 Hz + l'IMU
-(`/imu/data_raw`) à 100 Hz. La fusion capteurs (EKF) et la navigation tournent
-côté SBC/PC, en ROS 2 Humble.
+Tondeuse robot autonome sous **ROS 2**, et le dépôt de tous ses contrôleurs.
+Deux moitiés, sur deux machines :
 
-> Firmware = MCU (ESP32-P4). Agent + ROS 2 = SBC/PC (Linux). Le MCU ne parle pas
-> ROS 2 directement : il parle **XRCE-DDS** au `micro-ros-agent`, qui republie
-> les topics dans le graphe ROS 2.
-
-## Sommaire
-
-- [Architecture](#architecture)
-- [Matériel & câblage](#matériel--câblage)
-- [Prérequis](#prérequis)
-- [Compilation & flashage](#compilation--flashage)
-- [Démarrer avec ROS 2](#démarrer-avec-ros-2) ← le parcours complet
-- [Première mise en route (banc)](#première-mise-en-route-banc)
-- [Paramètres à calibrer](#paramètres-à-calibrer)
-- [Sécurité](#sécurité)
-- [Dépannage](#dépannage)
-- [Structure du dépôt](#structure-du-dépôt)
-- [Feuille de route](#feuille-de-route)
-
-## Architecture
-
-```
-[PC / SBC embarqué — Linux, ROS 2 Humble]          [ESP32-P4]
-  teleop / nav2                                      nœud micro-ROS "mowbot_base"
-      │ /cmd_vel                                       ├─ sub /cmd_vel → cinématique inverse
-  micro-ros-agent ◄── série USB (ou UDP/RJ45) ──►      ├─ PID vitesse/roue (50 Hz)
-      │ /odom  /imu/data_raw                           ├─ PWM 20 kHz + DIR → MDD10A → moteurs
-  robot_localization (EKF) → /odometry/filtered        └─ encodeurs PCNT → odométrie → /odom
-```
-
-Sur la tondeuse finale, l'odométrie roues est une source *secondaire* (patinage
-sur herbe) : l'EKF côté SBC fusionne les **vitesses** de `/odom` avec le **gyro
-yaw** de l'IMU, et le **GPS RTK** (à venir) fournira la position absolue.
-
-Décisions d'architecture détaillées (et leur pourquoi) : voir [CLAUDE.md](CLAUDE.md).
-
-## Matériel & câblage
-
-| Élément | Référence |
-|---|---|
-| MCU | ESP32-P4-Function-EV-Board |
-| Driver moteurs | Cytron MDD10A rev 2.0 (2×10 A, logique 3,3 V directe, sign-magnitude) |
-| Encodeurs | quadrature A/B, sorties **3,3 V** (le P4 n'est **pas** tolérant 5 V) |
-| IMU | ICM-42688-P en I2C (gyro yaw = cap court terme ; pas de magnéto) |
-
-### Câblage (par défaut, dans [`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h))
-
-| Signal | GPIO P4 | Vers |
+| moitié | où ça tourne | ce que c'est |
 |---|---|---|
-| PWM moteur gauche | 20 | PWM1 (MDD10A) |
-| DIR moteur gauche | 21 | DIR1 (MDD10A) |
-| PWM moteur droit | 22 | PWM2 (MDD10A) |
-| DIR moteur droit | 23 | DIR2 (MDD10A) |
-| Encodeur gauche A/B | 45 / 46 | encodeur roue gauche |
-| Encodeur droit A/B | 47 / 48 | encodeur roue droite |
-| IMU SDA / SCL | 7 / 8 | ICM-42688 (I2C, addr 0x68) |
-| GND | GND | **masse commune obligatoire** (ESP32 ↔ MDD10A ↔ encodeurs) |
+| **firmware** — [`controllers/`](controllers/README.md) | dans l'ESP32, flashé | `/cmd_vel` → PID par roue → moteurs ; encodeurs → `/odom` ; IMU → `/imu/data_raw` |
+| **logiciel embarqué** — [`robot/`](robot/README.md) | sur le SBC du robot (Jetson) | agent micro-ROS, EKF, lidar, SLAM, **nav2**, joystick web, services systemd |
+| outils poste de travail — [`pc/`](pc/README.md) | sur ton PC | RViz, pilotage clavier, points de passage en boucle |
 
-> ⚠️ **Broches non validées** contre le schéma de la carte EV : certaines GPIO
-> sont réservées (SD, MIPI, PHY Ethernet). Si un signal ne sort pas, suspecter
-> un conflit de broche → voir [Dépannage](#dépannage).
+Un quatrième dossier, [`docker/`](docker/Dockerfile.jazzy), construit une pile
+ROS 2 **Jazzy en conteneur** : la Jetson Xavier NX est bloquée en Ubuntu 20.04
+(JetPack 5.1.7 est la dernière version qui la supporte), et un conteneur permet
+d'y faire tourner Jazzy quand même — le noyau reste celui de l'hôte.
 
-## Prérequis
+L'ESP32 **ne parle pas ROS 2** : il parle XRCE-DDS au `micro-ros-agent`, qui
+republie les topics dans le graphe ROS 2. C'est pour ça qu'un agent doit tourner
+sur le SBC pour que le robot existe côté ROS.
 
-**Poste de développement (Windows)** — le composant micro-ROS ne compile que
-sous Linux, donc le build passe par Docker :
+## État réel du projet
 
-- **Docker Desktop** (backend WSL2) démarré ;
-- **Python 3** + `pip install esptool pyserial` (pour flasher via le port COM).
+Ce que le robot fait **aujourd'hui, vérifié sur le terrain** : il cartographie
+en SLAM, se localise, planifie et navigue vers un point donné dans RViz, ou
+enchaîne une boucle de points de passage. Tout démarre **automatiquement au boot
+du Jetson** — il n'y a rien à taper sur le robot.
 
-**SBC / PC ROS 2 (Linux)** — pour faire tourner l'agent et ROS 2 :
+Trois contrôleurs cohabitent dans ce dépôt :
 
-- ROS 2 **Humble** (ou l'image Docker Vulcanexus) ;
-- `sudo apt install ros-humble-robot-localization ros-humble-teleop-twist-keyboard`.
+| contrôleur | robot | état |
+|---|---|---|
+| `mowbot_p4` | tondeuse 12 V, Waveshare ESP32-P4-ETH | **calibré et validé au sol** (carrés à ±0,4 cm, coins à ±1°) |
+| `mowbot_wroom` | tondeuse 24 V, ESP32-WROOM DevKitC | en calibration ; **très lente**, ~0,055 m/s max, c'est mécanique |
+| `ackerbot_p4` | robot Ackermann (direction + traction) | **compile, jamais flashé** — géométrie en placeholders |
 
-## Compilation & flashage
+## Par où commencer si tu arrives sur le projet
 
-Scripts PowerShell (Windows) — le 1er run clone le composant micro-ROS et
-compile libmicroros (~15-20 min, ~2 Go d'image) ; les suivants sont incrémentaux.
+1. **[`CLAUDE.md`](CLAUDE.md)** — les décisions d'architecture *et leur pourquoi*.
+   À lire avant de proposer un changement : beaucoup de choix qui semblent
+   étranges sont le résultat d'une mesure.
+2. **[`COMMANDES.md`](COMMANDES.md)** — le mémo opérationnel : démarrer, voir,
+   piloter, cartographier, sauvegarder une carte.
+3. Puis le README de la moitié qui t'intéresse :
+   [`controllers/`](controllers/README.md), [`robot/`](robot/README.md) ou
+   [`pc/`](pc/README.md).
 
-```powershell
-.\scripts\build.ps1                   # build, transport série (défaut)
-.\scripts\build.ps1 -Transport eth    # bascule série → Ethernet/UDP (reconstruit libmicroros)
-.\scripts\build.ps1 -Clean            # fullclean + build
-.\scripts\build.ps1 -Menuconfig       # réglages fins (IP agent, pins, révision puce…)
+### Ce qu'il ne faut pas casser
 
-.\scripts\flash.ps1 -Port COM20 -Monitor   # flash + ouvre le moniteur (Ctrl+] pour quitter)
-.\scripts\monitor.ps1 -Port COM20          # moniteur seul
-```
+`controllers/mowbot_p4/main/robot.h` porte des constantes **calibrées au sol,
+recoupées par trois méthodes indépendantes** — entraxe, rayon de roue, ticks
+par tour. Les modifier fausse toutes les consignes du robot. Le fichier le dit
+en tête : *ne rien modifier ici*.
 
-- **Trouver le port COM** : `flash.ps1`/`monitor.ps1` auto-détectent s'il n'y a
-  qu'un seul port ; sinon passez `-Port`. La carte EV apparaît comme
-  *USB-Enhanced-SERIAL CH343* (visible dans le Gestionnaire de périphériques).
-- **Deux profils de transport** : `sdkconfig.serial` (défaut, UART0/USB 115200)
-  et `sdkconfig.eth` (EMAC interne + PHY IP101 de la carte EV). Changer de
-  transport **reconstruit libmicroros** (géré par le script, mais c'est long).
-- **Révision de puce** : les cartes EV pré-série embarquent un **ESP32-P4 v1.3**.
-  IDF v5.5 vise le silicium v3.1+ par défaut ; le support des révisions <3.0 est
-  activé dans [`controllers/mowbot_p4/sdkconfig.defaults`](controllers/mowbot_p4/sdkconfig.defaults)
-  (idem `ackerbot_p4`). ⚠️ un binaire compilé
-  ainsi ne bootera **pas** sur une puce v3.x de production (retirer les 2 lignes
-  `ESP32P4_REV_*` le jour venu).
+Et `controllers/common/` est **partagé par les trois robots** : une modification
+là touche la tondeuse validée. Recompiler `mowbot_p4` après tout changement de
+`common/`, même en travaillant sur un autre robot.
 
-⚠️ Les scripts `.ps1` ci-dessus datent de l'époque où le projet ESP-IDF était à
-la racine ; ils **n'ont pas été adaptés** au découpage en contrôleurs
-(`controllers/`, voir ci-dessous). Sous Linux / WSL2, c'est la voie de référence :
+## Compiler et flasher le firmware
+
+**Toujours par les scripts.** `idf.py` lancé à la main produit un firmware qui
+boote mais délire — le script gère la cible, le transport RMW et la bibliothèque
+micro-ROS, trois choses qui doivent rester cohérentes.
 
 ```bash
 . ~/esp/esp-idf/export.sh
-./scripts/build.sh mowbot_p4                 # <mowbot_p4|mowbot_wroom|ackerbot_p4> [build|clean|menuconfig] [serial|eth]
+./scripts/build.sh mowbot_p4                      # <contrôleur> [build|clean|menuconfig] [serial|eth]
 ./scripts/flash.sh mowbot_p4 /dev/ttyACM0 monitor
 ```
 
-**Un contrôleur = un dossier** dans [`controllers/`](controllers/README.md) :
-`main/robot.h` (broches, géométrie, gains), `main/CMakeLists.txt` (choix de la
-cinématique diffdrive ou Ackermann), `sdkconfig.defaults` (cible). Le code
-commun est dans `controllers/common/`. Chaque contrôleur a son propre `build/`.
+Détail de la disposition, ajout d'un contrôleur et pièges de `libmicroros` :
+[`controllers/README.md`](controllers/README.md).
 
-## Démarrer avec ROS 2
+> Les scripts `scripts/*.ps1` (Windows + Docker) datent d'une disposition
+> antérieure et **n'ont pas été adaptés** aux contrôleurs. La voie de référence
+> est Linux / WSL2 avec ESP-IDF v5.5 natif.
 
-Le parcours complet, du firmware flashé jusqu'au robot piloté au clavier.
-
-### 1. Flasher et vérifier que le firmware tourne
-
-```powershell
-.\scripts\flash.ps1 -Port COM20 -Monitor
-```
-
-Au boot, le moniteur affiche la calibration du gyro (~1 s, robot immobile) puis,
-en boucle : `micro-ros-agent injoignable, nouvel essai dans 1 s...` **entrelacé
-avec des octets binaires** (`~…XRCE…`). C'est **normal** en transport série :
-UART0 porte à la fois les logs et les trames XRCE-DDS. Le firmware est vivant et
-attend l'agent.
-
-### 2. Rendre l'ESP32 visible côté Linux
-
-L'agent et ROS 2 tournent sous Linux ; l'ESP32 doit y être accessible en série :
-
-- **Sur le SBC/Jetson (cible)** : brancher l'ESP32 en USB → il apparaît en
-  `/dev/ttyUSB0` (ou `/dev/ttyACM0`).
-- **Depuis ce PC Windows (test)** : exposer le port COM à WSL2 avec
-  [usbipd-win](https://github.com/dorssel/usbipd-win), en administrateur :
-  ```powershell
-  usbipd list                          # repérer le busid du CH343
-  usbipd attach --wsl --busid <busid>  # l'ESP32 devient /dev/ttyUSB0 dans WSL
-  ```
-
-> ⚠️ **Transport série : fermer le moniteur avant de lancer l'agent.** UART0 est
-> partagé (logs + transport) ; un seul process peut tenir le port. `Ctrl+]` pour
-> quitter le moniteur IDF.
-
-### 3. Lancer le micro-ros-agent
+## Déployer sur le robot
 
 ```bash
-# Transport série (USB) :
-docker run -it --rm -v /dev:/dev --privileged --net=host \
-    microros/micro-ros-agent:humble serial --dev /dev/ttyUSB0 -b 115200
-
-# Transport Ethernet/UDP (firmware compilé avec -Transport eth) :
-docker run -it --rm --net=host \
-    microros/micro-ros-agent:humble udp4 --port 8888
+scp -r robot nvidia@<ip-du-sbc>:~/mowbot_src
+ssh nvidia@<ip-du-sbc> 'bash ~/mowbot_src/install.sh'
 ```
 
-Dès la connexion, le firmware cesse de logger « injoignable » et crée ses topics.
+L'installateur détecte la distro ROS, installe les paquets manquants, génère les
+services systemd au nom de l'utilisateur courant et **écrit les règles udev de
+cette machine**. Rien n'est codé en dur : voir [`robot/README.md`](robot/README.md).
 
-### 4. Vérifier les topics
+⚠️ Le lidar et l'ESP32 du robot 24 V partagent la même puce USB (CP2102) et sont
+distingués par **port physique**. Ne pas déplacer les prises USB du Jetson sans
+relancer `mowbot detect`.
 
-```bash
-ros2 topic list           # → /cmd_vel, /odom, /imu/data_raw
-ros2 topic echo /odom
-ros2 topic hz /imu/data_raw   # ~100 Hz attendu
-```
+## Matériel
 
-### 5. Lancer la fusion EKF (optionnel mais recommandé)
+| élément | référence |
+|---|---|
+| MCU (robot A) | **Waveshare ESP32-P4-ETH** — seul le header droit est libre ; GPIO 5, 6, 15, 16 et 46 morts, 48 inaccessible |
+| MCU (robot B) | ESP32-WROOM-32U DevKitC V4 |
+| driver moteurs | Cytron MDD10A rev 2.0 — sign-magnitude (PWM 20 kHz + DIR), logique 3,3 V directe, 2×10 A |
+| encodeurs | quadrature A/B, comptage **matériel PCNT** |
+| IMU | GY-801 ou ICM-42688-P en I2C, reconnue automatiquement |
+| lidar | LD14 (nœud natif) ou LSLidar N10 |
 
-```bash
-ros2 launch ./ros2/bringup.launch.py     # robot_localization
-ros2 topic echo /odometry/filtered       # pose fusionnée + TF odom→base_link
-```
+**Le câblage exact de chaque robot est dans son `robot.h`**, avec le pourquoi de
+chaque broche — c'est la seule source de vérité, et elle est validée au banc :
 
-L'EKF fusionne les **vitesses** de `/odom` avec le **gyro yaw**. Détails et
-config : [robot/README.md](robot/README.md) et [robot/config/ekf.yaml](robot/config/ekf.yaml).
+- [`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h)
+- [`controllers/mowbot_wroom/main/robot.h`](controllers/mowbot_wroom/main/robot.h)
+- [`controllers/ackerbot_p4/main/robot.h`](controllers/ackerbot_p4/main/robot.h)
 
-### 6. Piloter
+> ⚠️ **Aucun de ces MCU n'est tolérant 5 V.** Alimenter l'IMU en 3,3 V : ses
+> résistances de tirage I2C sont reliées à son VCC et détruiraient les broches.
 
-```bash
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
+## Cadences
 
-Le deadman coupe les moteurs si `/cmd_vel` cesse pendant 500 ms (agent
-déconnecté, teleop fermé…).
+| topic | fréquence | pourquoi |
+|---|---|---|
+| boucle PID | 50 Hz | fluidité de l'asservissement |
+| `/odom` | 10 Hz | 1 cycle sur 5 — un message Odometry pèse ~730 o, dont 576 de covariances |
+| `/imu/data_raw` | 20 Hz | idem, ~330 o par message |
+| lien série | 460 800 bauds | à 115 200 le lien saturait et **les deux** topics tombaient sous leur cible |
 
-## Première mise en route (banc)
-
-**Robot sur cales, roues en l'air**, avant tout essai au sol.
-
-- Un **auto-test moteurs temporaire** est actuellement câblé dans
-  [`app_main`](controllers/common/base/main.c) : au boot, les deux roues tournent en avant 1 s
-  puis en arrière 1 s (logs `TEST MOTEURS : …`). Il sert à valider le câblage et
-  le sens de rotation, **à retirer** ensuite.
-- **Sens de rotation** : si une roue tourne à l'envers, inverser son flag
-  `MOTOR_L_INVERT` / `MOTOR_R_INVERT` dans [`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h) ; si
-  le robot recule quand il devrait avancer, inverser **les deux**. Même logique
-  avec `ENC_L_INVERT` / `ENC_R_INVERT` si `/odom` décroît en marche avant.
-
-## Paramètres à calibrer ([`controllers/mowbot_p4/main/robot.h`](controllers/mowbot_p4/main/robot.h))
-
-1. `TICKS_PER_WHEEL_REV` — ticks par tour de roue (×4 quadrature, réducteur inclus).
-2. `WHEEL_RADIUS_M` — pousser le robot sur 2 m, comparer à `/odom`.
-3. `TRACK_WIDTH_M` — **critique pour le cap** : faire tourner le robot 10 tours
-   sur lui-même, ajuster jusqu'à ce que `/odom` indique exactement 10×2π.
-4. `PID_KP/KI/KD` — commencer par Kp seul, ajouter Ki pour annuler l'erreur statique.
+Le débit du firmware (`controllers/common/base/config.h`) et celui de l'agent
+(`robot/bin/mowbot_env.sh`) **doivent être identiques**, sinon l'agent ne
+dialogue pas du tout.
 
 ## Sécurité
 
-- **Deadman** firmware : moteurs coupés sans `/cmd_vel` depuis 500 ms.
-- Pour la tondeuse, l'**arrêt d'urgence** et la **coupure lame** devront être
-  **matériels**, indépendants de ce firmware.
+- **Deadman firmware** : moteurs coupés si `/cmd_vel` cesse pendant 500 ms
+  (agent déconnecté, teleop fermé). En Ackermann, roues remises droites en plus.
+- L'**arrêt d'urgence** et la **coupure lame** devront être **matériels**,
+  indépendants de ce firmware. Ce n'est pas fait.
+- Le banc de test (`BOOT_BENCH_TEST` dans `config.h`) vaut **0** : le boot ne
+  bouge pas les roues. Ne le passer à 1 que **roues en l'air**.
 
 ## Dépannage
 
-| Symptôme | Cause probable / solution |
+| symptôme | cause probable / solution |
 |---|---|
-| `docker info … NotSpecified: WARNING` au build | PS 5.1 transforme le stderr natif en erreur ; déjà corrigé (check via `cmd /c`). Vérifier que Docker Desktop est démarré. |
-| `CONFIG_MICRO_ROS_AGENT_IP undeclared` à la compil | libmicroros compilé pour le mauvais transport. `build.ps1` gère ça via `app-colcon.meta` (série→`custom`, eth→`udp`) ; relancer le build. |
-| `rcl/rcl.h: No such file` | libmicroros incomplet (build interrompu). `build.ps1` le détecte et reconstruit ; sinon `-Clean`. |
-| Flash : `requires chip revision [v3.1-v3.99] (this chip is v1.3)` | Puce pré-série ; support <3.0 déjà activé dans `sdkconfig.defaults`. Supprimer `sdkconfig`, rebuilder. |
-| `esptool introuvable` au flash | `pip install esptool` sur le poste Windows. |
-| Un seul moteur tourne | Câblage du canal MDD10A concerné (PWM/DIR, GND commun), ou GPIO réservée. Permuter les moteurs en sortie pour isoler moteur vs voie de commande. |
-| Moniteur illisible (`~…XRCE…`) | Normal en série : UART0 partagé logs+transport. |
-| Agent : port occupé / pas de connexion | Fermer le moniteur avant l'agent (UART0). Vérifier le bon `/dev/tty*` (WSL : `usbipd attach`). |
-| Topics absents (`ros2 topic list` vide) | L'agent n'est pas lancé, ou mauvais transport/port/baud. |
+| moteurs muets, `/odom` absent | `sudo systemctl restart mowbot-agent`. Un conteneur agent resté en vie tient le port : le script le supprime avant de réveiller l'ESP32 |
+| plus de `/scan` | `sudo systemctl restart mowbot-lidar` |
+| nœuds visibles mais tout est muet | segment `/dev/shm` corrompu (fichier `fastrtps` de 0 octet) : `mowbot restart` |
+| après un changement de WiFi, rien ne répond | les participants DDS restent liés à l'ancienne IP : `bash ~/robot_up.sh` sur le Jetson |
+| `CONFIG_MICRO_ROS_AGENT_IP undeclared` à la compilation | `libmicroros` construite pour le mauvais transport RMW. `build.sh` le gère par `app-colcon.meta` ; relancer |
+| `relocations in generic ELF (EM: 243)` au link | `libmicroros` d'une autre architecture. `build.sh` le détecte par `.microros_target` |
+| moniteur illisible (`~…XRCE…`) | normal en série : UART0 porte les logs **et** le transport |
+| port occupé au flash | fermer le moniteur (`Ctrl+]`) et arrêter l'agent avant `flash.sh` |
+| `could not read Username` pendant un build | GitHub refuse le clonage anonyme sur cette machine ; `build.sh` contourne (voir `controllers/README.md`) |
+| flash : `requires chip revision v3.1+` | puce P4 pré-série v1.3 ; support activé dans `controllers/mowbot_p4/sdkconfig.defaults`. ⚠️ un binaire ainsi compilé **ne bootera pas** sur une puce v3.x de production |
 
 ## Structure du dépôt
 
 ```
-controllers/     firmware ESP-IDF, UN DOSSIER PAR CONTRÔLEUR (voir controllers/README.md)
-  common/          code partagé : base/ (main.c, config.h, kin.h, pid, imu, encoders,
-                   transport), kin_diffdrive/, kin_ackermann/, profils sdkconfig
-  mowbot_p4/       robot A, diffdrive, Waveshare ESP32-P4-ETH, 12 V — calibré
-  mowbot_wroom/    robot B, diffdrive, ESP32-WROOM DevKitC, 24 V
-  ackerbot_p4/     robot Ackermann, ESP32-P4 — jamais flashé, placeholders
-scripts/         build.sh / flash.sh <contrôleur> (Linux/WSL2) ; .ps1 non adaptés
-robot/           côté SBC (Jetson) : bin/, config/ (nav2, slam, ekf), nodes/, launch/, systemd/
-pc/              côté PC : waypoints.py, outils RViz
-components/      composant micro-ROS (cloné ou copié au 1er build, gitignoré)
-CLAUDE.md        contexte & décisions d'architecture
-COMMANDES.md     mémo des commandes courantes
-HANDOFF.md       note de passation (état, point de reprise)
+controllers/       firmware ESP-IDF — UN DOSSIER PAR CONTRÔLEUR
+  common/base/       main.c, config.h commun, kin.h, pid, imu, encodeurs, transport
+  common/kin_*/      une cinématique par dossier (diffdrive, ackermann)
+  <robot>/           main/robot.h + choix de la cinématique et de la cible
+scripts/           build.sh / flash.sh <contrôleur>
+robot/             ce qui est déployé sur le SBC : bin/ config/ nodes/ launch/ systemd/ www/
+pc/                RViz, teleop, waypoints.py
+docker/            image ROS 2 Jazzy pour un SBC bloqué en Ubuntu 20.04 (Jetson NX)
+components/        composant micro-ROS (cloné au 1er build, gitignoré, ~390 Mo)
+CLAUDE.md          décisions d'architecture et leur pourquoi
+COMMANDES.md       mémo opérationnel
 ```
 
 ## Feuille de route
 
 - [x] Diffdrive : `/cmd_vel` → PID → MDD10A, odométrie → `/odom`
-- [x] IMU ICM-42688 → `/imu/data_raw` à 100 Hz (calib biais gyro au boot ; démarre sans IMU si absente)
-- [x] Transport Ethernet (profil `sdkconfig.eth`, PHY IP101 de la carte EV)
-- [x] Côté SBC : robot_localization (EKF vitesses odom + gyro yaw) — voir [robot/](robot/README.md)
-- [ ] Bascule série → Ethernet/UDP pour le produit final (IP de l'agent dans `sdkconfig.eth`)
-- [ ] GPS RTK (u-blox ZED-F9P) — position principale en extérieur
+- [x] IMU → `/imu/data_raw`, calibration du biais gyro au boot, démarre sans IMU
+- [x] EKF côté SBC (vitesses `/odom` + gyro yaw), lidar, SLAM
+- [x] **nav2** : planification et suivi de trajectoire, réglés et mesurés
+- [x] Points de passage en boucle avec marqueurs RViz (`pc/waypoints.py`)
+- [x] Trois contrôleurs dans un seul dépôt, code commun partagé
+- [ ] Ackermann : mesurer la géométrie, câbler, bring-up au banc, config nav2 dédiée
+- [ ] Bascule transport série → Ethernet/UDP pour le produit final
+- [ ] GPS RTK (u-blox ZED-F9P) — position absolue en extérieur
 - [ ] Coverage planning (opennav_coverage / Fields2Cover)
-- [ ] Contrôle lame + capteurs de sécurité (soulèvement, bumper)
-- [ ] nav2
-```
+- [ ] Contrôle lame + capteurs de sécurité (soulèvement, bumper), en matériel
+
+## Points ouverts connus
+
+Ce qui est mesuré mais pas résolu, pour ne pas le redécouvrir :
+
+- **flanc gauche aveugle** du lidar, ~50–120° : mécanique, pas logiciel.
+- `robot/nodes/scan_fix.py` se bloque silencieusement (nœud Python).
+- le décalage `map→odom` grandit sur les longues sessions de cartographie
+  (croissance du graphe de poses) : sauver la carte et passer en localisation.
+- les moteurs 12 V ne suivent la consigne qu'à ~84 % à pleine vitesse
+  (`FF_GAIN` vaut 0) : marge d'amélioration côté feed-forward.
