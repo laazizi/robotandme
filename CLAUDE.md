@@ -40,7 +40,7 @@ changement de `common/`, même en travaillant sur un autre robot.
   Ethernet/UDP (`sdkconfig.eth`) pour le robot final — EMAC interne du P4 +
   PHY IP101 de la carte EV, les GPIO par défaut du composant micro-ROS sont
   déjà les bons (MDC 31, MDIO 52, RST 51). Wi-Fi exclu (P4 sans radio, jitter).
-- **Fusion côté SBC, pas sur le MCU** : robot_localization (`ros2/ekf.yaml`)
+- **Fusion côté SBC, pas sur le MCU** : robot_localization (`robot/config/ekf.yaml`)
   fusionne les VITESSES de /odom (pas la pose : patinage sur herbe) + gyro yaw.
   Le GPS RTK (u-blox ZED-F9P) sera la source de position principale.
 - **Sécurité** : deadman 500 ms sur /cmd_vel dans le firmware. L'arrêt

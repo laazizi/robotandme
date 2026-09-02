@@ -26,7 +26,7 @@ Décision en suspens — où lancer l'agent, car les commandes diffèrent :
 1. **Sur le SBC/Jetson (cible finale)** : débrancher l'ESP32 du PC, le
    rebrancher sur la Jetson en USB, lancer l'agent Docker série
    (`microros/micro-ros-agent:humble serial --dev /dev/ttyUSB0 -b 115200`,
-   cf. [ros2/README.md](ros2/README.md)).
+   cf. [robot/README.md](robot/README.md)).
 2. **Depuis ce PC Windows** : l'ESP32 reste sur COM20 ; exposer le port à WSL2
    avec `usbipd-win`, puis lancer l'agent dans WSL/Docker.
 
@@ -34,7 +34,7 @@ Décision en suspens — où lancer l'agent, car les commandes diffèrent :
 un seul process peut tenir le port à la fois.
 
 Ensuite : EKF (`ros2 launch ./ros2/bringup.launch.py`) et teleop, cf.
-[ros2/README.md](ros2/README.md).
+[robot/README.md](robot/README.md).
 
 ## Fait cette session
 

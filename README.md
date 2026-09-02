@@ -187,7 +187,7 @@ ros2 topic echo /odometry/filtered       # pose fusionnée + TF odom→base_link
 ```
 
 L'EKF fusionne les **vitesses** de `/odom` avec le **gyro yaw**. Détails et
-config : [ros2/README.md](ros2/README.md) et [ros2/ekf.yaml](ros2/ekf.yaml).
+config : [robot/README.md](robot/README.md) et [robot/config/ekf.yaml](robot/config/ekf.yaml).
 
 ### 6. Piloter
 
@@ -251,7 +251,6 @@ controllers/     firmware ESP-IDF, UN DOSSIER PAR CONTRÔLEUR (voir controllers/
 scripts/         build.sh / flash.sh <contrôleur> (Linux/WSL2) ; .ps1 non adaptés
 robot/           côté SBC (Jetson) : bin/, config/ (nav2, slam, ekf), nodes/, launch/, systemd/
 pc/              côté PC : waypoints.py, outils RViz
-ros2/            ancien dossier SBC (EKF, bringup) — voir robot/ pour l'actuel
 components/      composant micro-ROS (cloné ou copié au 1er build, gitignoré)
 CLAUDE.md        contexte & décisions d'architecture
 COMMANDES.md     mémo des commandes courantes
@@ -263,7 +262,7 @@ HANDOFF.md       note de passation (état, point de reprise)
 - [x] Diffdrive : `/cmd_vel` → PID → MDD10A, odométrie → `/odom`
 - [x] IMU ICM-42688 → `/imu/data_raw` à 100 Hz (calib biais gyro au boot ; démarre sans IMU si absente)
 - [x] Transport Ethernet (profil `sdkconfig.eth`, PHY IP101 de la carte EV)
-- [x] Côté SBC : robot_localization (EKF vitesses odom + gyro yaw) — voir [ros2/](ros2/)
+- [x] Côté SBC : robot_localization (EKF vitesses odom + gyro yaw) — voir [robot/](robot/README.md)
 - [ ] Bascule série → Ethernet/UDP pour le produit final (IP de l'agent dans `sdkconfig.eth`)
 - [ ] GPS RTK (u-blox ZED-F9P) — position principale en extérieur
 - [ ] Coverage planning (opennav_coverage / Fields2Cover)
