@@ -218,7 +218,10 @@ controller_server:
       # batch_size x time_steps / trajectory_point_step. On le divise par
       # quatre (800->400 et pas 4->8) apres avoir vu la baisse du costmap a
       # 2,5 Hz faire ENFIN bouger le robot (0,97 m contre 0,00 m).
-      batch_size: 400
+      # Retour a 800 : l'essai a 400 (avec step 8) a MESURE PIRE que 800/4
+      # (0,28 m parcourus contre 0,97, cadence min 0,44 contre 0,82 Hz). La
+      # preuve que le volume n'etait pas le goulot -- c'etait le journal.
+      batch_size: 800
       iteration_count: 1
       temperature: 0.3
       gamma: 0.015
@@ -314,7 +317,7 @@ controller_server:
         # les 30 cm. Le robot faisant 0,50 m de large, les empreintes
         # successives se recouvrent encore largement -- aucun obstacle plus
         # large que 30 cm ne peut se glisser entre deux tests.
-        trajectory_point_step: 8
+        trajectory_point_step: 4
       GoalCritic:
         enabled: true
         cost_power: 1
@@ -457,19 +460,23 @@ local_costmap:
         # Consequence assumee : le robot gardera plus de distance aux obstacles
         # qu avec RPP. Pour eviter une personne, c est ce qu on veut ; pour
         # tondre au ras d une bordure, ce sera a rediscuter.
-        # 0,05 m, COMME LE FICHIER RPP, et pour la meme raison : la securite
-        # est portee par le controle d'EMPREINTE (consider_footprint: true
-        # ci-dessus), pas par l'inflation. Une inflation superieure au rayon
-        # inscrit compterait la taille du robot DEUX FOIS et refermerait les
-        # passages -- c'est le "ca bloque pour rien" documente pour robot A, et
-        # c'est aussi ce qui a EMMURE ce robot quand j'avais mis 0,42
-        # (44 % de costmap bloquante, disque libre reduit a 0,32 m de rayon).
-        # La bibliotheque avertira qu'elle ne peut pas accelerer le controle
-        # d'empreinte faute de champ de cout : c'est attendu, et c'est le prix
-        # de la justesse. Ne pas "corriger" cet avertissement en montant
-        # l'inflation sans repasser consider_footprint a false -- et ne pas
-        # repasser consider_footprint a false, voir juste au-dessus.
-        inflation_radius: 0.05
+        # 0,42 m = RAYON CIRCONSCRIT, avec consider_footprint TRUE ci-dessus.
+        # C'est la combinaison que la bibliotheque reclame, et la seule que je
+        # n'avais jamais essayee -- j'avais teste 0,42 avec le mode POINT, ce
+        # qui avait emmure le robot, et j'en avais conclu a tort que 0,42 etait
+        # inutilisable. C'est FAUX : avec le controle d'empreinte, l'inflation
+        # n'est plus la taille du robot, c'est seulement un ACCELERATEUR. La
+        # collision reste decidee par le polygone exact.
+        # CE QUE CELA CORRIGE, mesure le 04/09/2026 : sans ce champ de cout,
+        # computeCircumscribedCost echoue et journalise une ERREUR de 400
+        # caracteres A CHAQUE CYCLE, huit fois par seconde, vers journald. Le
+        # controleur etait bloque sur des ecritures de journal, pas sur du
+        # calcul -- ce qui explique que diviser le volume de trajectoires par
+        # quatre n'ait RIEN change tandis que le CPU restait a 20 %.
+        # Contrepartie : le cout monte pres des obstacles, donc le robot
+        # preferera passer au large. Il PEUT toujours passer etroit, puisque la
+        # decision de collision vient de l'empreinte exacte.
+        inflation_radius: 0.42
         cost_scaling_factor: 3.0
       always_send_full_costmap: True
 
