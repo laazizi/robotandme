@@ -74,7 +74,16 @@
                  trace perimee plutot que d'un obstacle reel.
                  MESURE avant ce changement : 8 "Goal failed" pour UN SEUL "BackUp"
                  dans le journal, le robot restait coince sans jamais reculer. -->
-            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+            <!-- backup_speed 0.25 et NON 0.15, et time_allowance 20 s.
+                 MESURE le 04/09/2026 : "Exceeded time allowance before reaching
+                 the DriveOnHeading goal", dix secondes pour 30 cm qui devraient
+                 en prendre deux. Le robot ne bougeait pas : 0,15 m/s est PILE
+                 sur le seuil de frottement de ces moteurs, documente dans
+                 config/speeds.env (ils ne demarrent pas sous 0,13 m/s, les
+                 roues bourdonnent sans entrainer le chassis).
+                 0,25 m/s est franchement au-dessus du seuil et reste sous la
+                 vitesse de croisiere de 0,30. -->
+            <BackUp backup_dist="0.30" backup_speed="0.25" time_allowance="20" error_code_id="{backup_code_id}"/>
             <Sequence name="ClearingActions">
               <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>

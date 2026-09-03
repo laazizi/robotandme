@@ -174,7 +174,20 @@
 // l'ancien avant donc - dans le nouveau : en roue DROITE il faut l'inverser.
 #define ENC_L_INVERT         0       // au banc : chaque roue doit compter + en avant
 #define ENC_R_INVERT         1
-#define FF_GAIN              0.0f    // mowbot suivait a 83 % sans FF : 1.0 est un bon depart
+// 1.0 depuis le 04/09/2026, et c'est le remede DOCUMENTE au seuil de frottement.
+// config/speeds.env le dit en toutes lettres : "LA COMPENSATION DE FRICTION
+// APPARTIENT AU FIRMWARE, pas au test de validite d'une trajectoire" -- apres
+// que des seuils min_speed cote nav2 aient immobilise robot A.
+// Symptome corrige : MPPI et le comportement BackUp emettent des consignes
+// entre 0,02 et 0,15 m/s que ces moteurs ne demarrent pas (ils ne s'animent
+// pas sous ~0,13 m/s, les roues bourdonnent). Le PID partait de zero et devait
+// s'enrouler pour vaincre le frottement statique ; souvent il n'y arrivait pas
+// avant l'expiration du delai, d'ou "backup failed" et le robot qui bourdonne
+// pendant que le servo, lui, suit sa consigne.
+// Le terme d'anticipation donne immediatement un PWM proportionnel a la
+// consigne : 15 % pour 0,15 m/s, sans attendre l'integrale du PID.
+// A REGLER AU SOL : si le robot depasse sa consigne, baisser vers 0,7.
+#define FF_GAIN              1.0f
 #define PID_KP               0.8f
 #define PID_KI               2.0f
 #define PID_KD               0.0f
