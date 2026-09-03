@@ -76,7 +76,13 @@ controller_server:
     # qui reste tres fin devant son gabarit. Sur une Raspberry Pi 4, 20 Hz
     # doublait inutilement la charge du controleur -- or c'est la saturation
     # (charge 24 sur 4 coeurs) qui faisait rejeter les messages dans RViz.
-    controller_frequency: 10.0
+    #
+    # 8 Hz ET NON 10 DANS CE FICHIER (le fichier RPP garde 10). MESURE : MPPI
+    # tient 5,2 a 9,2 Hz sur cette machine, donc annoncer 10 produit des
+    # "Control loop missed its desired rate" a repetition. Une cadence TENUE
+    # vaut mieux qu une cadence ratee : le lisseur de vitesse et le deadman du
+    # firmware raisonnent sur des periodes regulieres. model_dt suit (1/8).
+    controller_frequency: 8.0
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 3.0
@@ -130,7 +136,16 @@ controller_server:
     #  bibliotheques INSTALLEES (libmppi_controller.so, libmppi_critics.so),
     #  pas dans une documentation : nav2_mppi_controller 1.3.12.
     #
-    #  ESSAI AU SOL DU 04/09/2026 : NE PAS UTILISER EN L'ETAT.
+    #  TROIS ESSAIS AU SOL LE 04/09/2026. Etat : PLAUSIBLE, JAMAIS VALIDE --
+    #  et le dernier echec n est PAS imputable a MPPI. Le planificateur ne
+    #  trouvait aucun chemin : mesure sur la carte, le plus grand cercle libre
+    #  autour du robot faisait 0,40 m de RAYON, pour un robot de 0,62 x 0,50 m
+    #  dont le virage le plus serre balaie un anneau de 0,485 m de large. Aucun
+    #  chemin Reeds-Shepp NE PEUT exister dans un tel espace, quel que soit le
+    #  controleur. MPPI reste a juger dans un espace degage : il faut au moins
+    #  ~1,5 m de rayon libre autour du robot.
+    #
+    #  CE QUI A ETE DIAGNOSTIQUE ET CORRIGE :
     #  Charge et actif sans erreur (7 critics, modele Ackermann, min_turning_r
     #  injecte), mais MESURE :
     #    "Control loop missed its desired rate of 10.0000 Hz.
@@ -142,13 +157,18 @@ controller_server:
     #  consider_footprint avec une inflation locale de 0,05 m -- la
     #  bibliotheque avertit explicitement qu'elle ne peut pas accelerer le
     #  controle d'empreinte par le champ de cout dans ce cas.
-    #  A ESSAYER, dans cet ordre, en remesurant la cadence a chaque fois :
-    #    1. trajectory_point_step 2 -> 4  (moitie de points testes)
-    #    2. batch_size 1500 -> 800, time_steps 30 -> 20
-    #    3. consider_footprint -> false (perd le contour exact)
-    #    4. inflation locale >= 0,42 m DANS CE FICHIER SEULEMENT (le
-    #       commentaire du costmap explique pourquoi c'est bas, mais cette
-    #       raison vaut pour DWB/ObstacleFootprint, pas pour MPPI)
+    #  Essai 1 (1500 trajectoires, horizon 3 s, mode empreinte) : 6,9 Hz.
+    #  Essai 2 (800 trajectoires, horizon 2 s, mode empreinte)   : min 1,78 Hz.
+    #    ALLEGER L ECHANTILLONNAGE N A RIEN DONNE -- la preuve que le cout
+    #    n etait pas dans le nombre de trajectoires.
+    #  Essai 3 (mode POINT + inflation 0,42) : min 5,21 Hz, max 9,17, deux
+    #    rates seulement, et l avertissement d inflation de la bibliotheque a
+    #    DISPARU. C etait le bon correctif : le cout etait le controle
+    #    d empreinte effectue SOUS LE VERROU DU COSTMAP. Le CPU est reste a
+    #    19 % d un coeur sur six pendant les trois essais : jamais un manque de
+    #    puissance, toujours une attente.
+    #  Reste a faire : confirmer la cadence avec 8 Hz annonces, puis juger le
+    #    comportement dans un espace degage.
     #  Les deux buts d'essai ont echoue, mais PAS a cause de MPPI : le
     #  planificateur repondait "no valid path found" et "Start occupied" en
     #  boucle, l'arbre annulait et relancait, et le robot pivotait sur place
@@ -157,14 +177,16 @@ controller_server:
     # ==========================================================
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      # 3 s d horizon a 10 Hz (model_dt = 1/controller_frequency), soit 90 cm a
-      # 0.30 m/s. Coherent avec le sim_time de 3 s retenu pour DWB sur robot A.
-      time_steps: 30
-      model_dt: 0.1
+      # ESSAI 2 (04/09/2026) : 2 s d horizon, 800 trajectoires, un point sur 4
+      # teste dans CostCritic -- l essai 1 (30 pas, 1500, un sur 2) tenait 6,9 Hz
+      # au lieu de 10. 2 s a 0.30 m/s = 60 cm d anticipation, encore au-dessus
+      # du lookahead RPP de 45 cm.
+      time_steps: 20
+      model_dt: 0.125
       # 1500 et non 2000 (defaut) : la Jetson NX a 6 coeurs dont ~3 libres, et
       # CostCritic avec consider_footprint est couteux (voir plus bas). A
       # ajuster APRES mesure de charge, pas avant.
-      batch_size: 1500
+      batch_size: 800
       iteration_count: 1
       temperature: 0.3
       gamma: 0.015
@@ -238,10 +260,24 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        consider_footprint: true
+        # FALSE depuis l essai 3 (04/09/2026), et c est LE correctif de cadence.
+        # En mode empreinte, CostCritic teste un polygone de 10 sommets pour
+        # chaque point de chaque trajectoire -- des dizaines de milliers de
+        # consultations SOUS LE VERROU DU COSTMAP. Mesure : la boucle tombait a
+        # 1,78 Hz alors que le CPU restait a 19 % d un coeur, donc elle
+        # ATTENDAIT. Meme signature que celle deja documentee pour robot A
+        # (costmap local monte a 10 Hz : 2,17 a 5,76 Hz pour 43 % d un coeur).
+        # Halver l echantillonnage n y avait presque rien change, ce qui
+        # confirme que le cout n est pas dans le nombre de trajectoires.
+        # CONTREPARTIE OBLIGATOIRE : le robot devient un POINT pour ce critere,
+        # sa taille doit donc etre portee par l INFLATION -- voir le
+        # local_costmap de CE fichier, monte a 0,42 m. C est la configuration
+        # MPPI standard ; l inflation minuscule de robot A n existe que parce
+        # que DWB utilisait ObstacleFootprint, un paradigme different.
+        consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
-        trajectory_point_step: 2
+        trajectory_point_step: 4
       GoalCritic:
         enabled: true
         cost_power: 1
@@ -361,31 +397,21 @@ local_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # LOCAL = execution. Reste bas (5 cm) : c'est cette couche qui faisait
-        # refuser des passages franchissables ("ca bloque pour rien"). La
-        # securite reelle est assuree par le footprint, qui est exact.
-        #
-        # NAV2 SE PLAINT ICI, ET C'EST NORMAL. A chaque configuration il ecrit :
-        #   The configured inflation radius (0.050) is smaller than the computed
-        #   inscribed radius (0.230) of your footprint
-        # Ce message suppose la convention INVERSE de la notre : robot traite
-        # comme un point, et inflation >= rayon inscrit chargee de representer sa
-        # taille. C'est ce qu'exige le critere BaseObstacle, que nous n'utilisons
-        # PAS (voir critics, plus haut : ObstacleFootprint).
-        # ObstacleFootprint teste le contour complet contre le costmap. Monter
-        # l'inflation a 0.23 compterait donc la taille du robot DEUX FOIS : les
-        # cellules a moins de 23 cm d'un obstacle deviennent bloquantes, et comme
-        # le contour s'etend deja a 25 cm, le robot refuserait tout passage de
-        # moins de ~48 cm alors qu'il en fait 50 de large et ne touche qu'a 23.
-        # C'est exactement le "ca bloque pour rien" corrige plus haut.
-        # NE PAS "corriger" cette valeur pour faire taire l'erreur. Si l'on
-        # voulait la faire taire, il faudrait passer a BaseObstacle + robot_radius
-        # -- au prix d'un contour circulaire, faux pour ce chassis.
-        # Les 5 cm ne sont pas nuls pour autant : etant sous le rayon inscrit,
-        # toute cellule qu'ils marquent devient bloquante, ce qui donne 5 cm de
-        # marge reelle autour des obstacles. Mesure au mur : 1 cm de jeu physique.
-        inflation_radius: 0.05
-        cost_scaling_factor: 5.0
+        # 0,42 m ICI ET SEULEMENT ICI (le fichier RPP garde 0,05).
+        # 0,42 = rayon CIRCONSCRIT de l empreinte : c est le minimum que la
+        # bibliotheque reclame pour que le controle de collision puisse etre
+        # accelere par le champ de cout, et c est indispensable des lors que
+        # CostCritic ne teste plus l empreinte (consider_footprint: false).
+        # Le robot etant traite comme un point, c est cette inflation qui
+        # PORTE sa taille : la baisser rendrait MPPI aveugle a son gabarit.
+        # NE PAS reporter cette valeur dans nav2_params_ackerbot.yaml : RPP y
+        # utilise le contour exact, et l y monter compterait la taille du robot
+        # DEUX FOIS -- c est le "ca bloque pour rien" documente pour robot A.
+        # Consequence assumee : le robot gardera plus de distance aux obstacles
+        # qu avec RPP. Pour eviter une personne, c est ce qu on veut ; pour
+        # tondre au ras d une bordure, ce sera a rediscuter.
+        inflation_radius: 0.42
+        cost_scaling_factor: 3.0
       always_send_full_costmap: True
 
 global_costmap:
