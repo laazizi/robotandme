@@ -64,7 +64,10 @@ void kin_init(void)
 
 bool kin_apply_twist(float v, float w)
 {
-    bool ok = ackermann_twist_to_cmd(v, w, &s_target_v, &s_target_delta);
+    // steering_get() rend l'angle LOGIQUE actuellement commande : c'est lui
+    // qu'on reconduit si la demande est une rotation sur place (voir
+    // ackermann.c), pour ne pas faire battre le servo a l'arret.
+    bool ok = ackermann_twist_to_cmd(v, w, steering_get(), &s_target_v, &s_target_delta);
     if (!ok) {
         // Rotation sur place : impossible en Ackermann. On compte, et on le dit
         // une fois sur 50 pour ne pas noyer le journal. Si ce message revient,

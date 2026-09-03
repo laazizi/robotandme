@@ -98,7 +98,12 @@ controller_server:
     controller_frequency: 8.0
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
-    failure_tolerance: 3.0
+    # 1,5 s au lieu de 3 : c'est le temps pendant lequel le controleur tolere
+    # ses propres echecs avant d'abandonner et de laisser la recuperation agir.
+    # 3 s se justifiaient quand MPPI subissait des blocages de 1 a 3,4 s ; ces
+    # blocages ont disparu avec la correction du journal (cadence tenue a 8 Hz),
+    # donc ce delai n'est plus qu'une attente.
+    failure_tolerance: 1.5
     progress_checker_plugin: "progress_checker"
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
@@ -117,7 +122,15 @@ controller_server:
       # les 5 cm exiges, et une manoeuvre serree legitime tient dans ce delai.
       # NE PAS descendre trop bas : MPPI subit des blocages isoles de 1 a 3,4 s,
       # et un seuil sous ~5 s declencherait des recuperations pour rien.
-      movement_time_allowance: 8.0
+      # 4 s : deuxieme reduction, apres 30 -> 8. L'utilisateur attendait
+      # ENCORE ~30 s parce que les delais s'ADDITIONNENT : 8 s de detection
+      # + 3 s de tolerance, puis l'arbre essayait d'abord d'effacer les
+      # costmaps (inutile contre un obstacle reel) et il fallait un SECOND
+      # cycle complet avant d'arriver a la marche arriere.
+      # 4 s est sur maintenant que MPPI tient ses 8 Hz sans blocage : a
+      # 0,30 m/s il faut 0,17 s pour parcourir les 5 cm exiges, soit 24 fois
+      # moins que le seuil. Ne pas descendre plus bas sans remesurer la cadence.
+      movement_time_allowance: 4.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       # robot de 58 cm de long : viser 8 cm etait irrealiste (le dernier

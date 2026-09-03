@@ -82,7 +82,7 @@ int main(void)
     for (unsigned i = 0; i < sizeof essais / sizeof essais[0]; i++) {
         float vi = essais[i][0], wi = essais[i][1];
         float vo, del;
-        bool ok = ackermann_twist_to_cmd(vi, wi, &vo, &del);
+        bool ok = ackermann_twist_to_cmd(vi, wi, 0.0f, &vo, &del);
         float w_obtenu = w_par_contrainte(vo, STEER_X_M, del);
         char nom[80];
         snprintf(nom, sizeof nom, "v=%+.2f w=%+.2f -> delta=%+.3f, w rendu", (double)vi, (double)wi, (double)del);
@@ -93,16 +93,19 @@ int main(void)
     // ---- 3. rotation sur place : refusee, et pre-braquage du bon cote ----
     printf("\n3) rotation sur place\n");
     float vo, del;
-    bool ok = ackermann_twist_to_cmd(0.0f, 0.5f, &vo, &del);
+    bool ok = ackermann_twist_to_cmd(0.0f, 0.5f, 0.0f, &vo, &del);
     verifie_vrai("rotation sur place REFUSEE (renvoie false)", !ok);
     verifie("   traction mise a zero", vo, 0.0f, 0.0f);
-    verifie_vrai("   pre-braquage a fond", fabsf(fabsf(del) - STEER_MAX_RAD) < 1e-6f);
-    verifie_vrai("   pre-braquage du bon cote (repartir vers w>0)",
-                 w_par_contrainte(1.0f, STEER_X_M, del) > 0.0f);
-    ok = ackermann_twist_to_cmd(0.0f, -0.5f, &vo, &del);
-    verifie_vrai("   pre-braquage du bon cote pour w<0",
-                 w_par_contrainte(1.0f, STEER_X_M, del) < 0.0f);
-    ok = ackermann_twist_to_cmd(0.0f, 0.0f, &vo, &del);
+    // Depuis le 04/09/2026 : l'angle courant est RECONDUIT, il n'y a plus de
+    // pre-braquage a fond -- il faisait battre le servo a l'arret pour rien.
+    verifie("   angle COURANT reconduit (0 ici)", del, 0.0f, 1e-9f);
+    ackermann_twist_to_cmd(0.0f, 0.5f, 0.42f, &vo, &del);
+    verifie("   angle courant reconduit (0,42)", del, 0.42f, 1e-9f);
+    ackermann_twist_to_cmd(0.0f, -0.5f, -0.31f, &vo, &del);
+    verifie("   angle courant reconduit, w<0 (-0,31)", del, -0.31f, 1e-9f);
+    ok = ackermann_twist_to_cmd(0.0f, -0.5f, 0.0f, &vo, &del);
+    verifie_vrai("   demande toujours jugee IMPOSSIBLE", !ok);
+    ok = ackermann_twist_to_cmd(0.0f, 0.0f, 0.0f, &vo, &del);
     verifie_vrai("arret complet accepte (renvoie true)", ok);
     verifie("   roue remise droite", del, 0.0f, 0.0f);
 
@@ -159,7 +162,7 @@ int main(void)
 
     // ---- 5. saturation et rayon minimal ----
     printf("\n5) butees\n");
-    ackermann_twist_to_cmd(0.1f, 5.0f, &vo, &del);
+    ackermann_twist_to_cmd(0.1f, 5.0f, 0.0f, &vo, &del);
     verifie_vrai("courbure impossible -> delta SATURE, v conserve",
                  fabsf(fabsf(del) - STEER_MAX_RAD) < 1e-6f && fabsf(vo - 0.1f) < 1e-6f);
     verifie("rayon de braquage minimal derive",

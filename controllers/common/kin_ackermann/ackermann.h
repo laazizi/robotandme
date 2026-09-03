@@ -48,7 +48,10 @@ static inline float ackermann_min_turning_radius(void)
 // Renvoie false quand la demande est physiquement IMPOSSIBLE : une rotation
 // sur place (|v| ~ 0 et w != 0). Dans ce cas v_out = 0 et delta_out est braque
 // a fond dans le sens demande, pour etre pret a partir.
-bool ackermann_twist_to_cmd(float v, float w, float *v_out, float *delta_out);
+// delta_courant : angle actuellement commande au servo. Sert UNIQUEMENT au cas
+// "rotation sur place demandee" : on le RECONDUIT au lieu de braquer a fond.
+bool ackermann_twist_to_cmd(float v, float w, float delta_courant,
+                            float *v_out, float *delta_out);
 
 // DIFFERENTIEL ELECTRONIQUE : vitesse d'essieu + braquage -> consigne de
 // CHAQUE roue motrice. Obligatoire faute de differentiel mecanique : commander

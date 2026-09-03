@@ -50,6 +50,14 @@
           <GoalUpdated/>
           <RoundRobin name="RecoveryActions">
             <!-- ACKERBOT : pas de Spin ici, voir l'en-tete du fichier.
+                 BackUp est passe EN PREMIER le 04/09/2026, avant l'effacement
+                 des costmaps. Mesure : l'utilisateur attendait ~30 s avant de
+                 voir le robot reculer. L'effacement etait essaye d'abord et ne
+                 sert a RIEN contre un obstacle reel, mais il coute un cycle
+                 complet de detection avant de passer a la suite. Reculer est la
+                 seule action qui retablisse une marge PHYSIQUE : elle passe
+                 donc en tete. L'effacement reste juste apres, gratuit, pour le
+                 cas ou le blocage vient d'une trace perimee.
                  ORDRE MODIFIE PAR RAPPORT A NAV2. L'amont essaie, dans l'ordre :
                  effacer les costmaps, TOURNER SUR PLACE de 90 deg, ATTENDRE 5 s,
                  et seulement en QUATRIEME reculer.
@@ -66,11 +74,11 @@
                  trace perimee plutot que d'un obstacle reel.
                  MESURE avant ce changement : 8 "Goal failed" pour UN SEUL "BackUp"
                  dans le journal, le robot restait coince sans jamais reculer. -->
+            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
             <Sequence name="ClearingActions">
               <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
             </Sequence>
-            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
             <Wait wait_duration="5.0"/>
           </RoundRobin>
         </ReactiveFallback>

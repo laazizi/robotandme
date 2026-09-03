@@ -8,7 +8,8 @@ static float clampf(float v, float lo, float hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-bool ackermann_twist_to_cmd(float v, float w, float *v_out, float *delta_out)
+bool ackermann_twist_to_cmd(float v, float w, float delta_courant,
+                            float *v_out, float *delta_out)
 {
     if (fabsf(v) < V_EPS_MPS) {
         // ROTATION SUR PLACE DEMANDEE. Un Ackermann ne sait pas faire : sans
@@ -19,12 +20,20 @@ bool ackermann_twist_to_cmd(float v, float w, float *v_out, float *delta_out)
         // en boucle, c'est que nav2 n'est pas configure en Ackermann (controleur
         // RPP avec use_rotate_to_heading: false, ou MPPI en motion_model
         // Ackermann, et un planificateur qui respecte ackermann_min_turning_radius()).
-        // Pre-braquage du bon cote : avec v > 0, tan(delta) = w x_s / v, donc
-        // le signe voulu est celui de w*x_s -- l'oppose de w si la roue
-        // directrice est a l'arriere.
+        // ON GARDE L'ANGLE COURANT, on ne braque PAS a fond.
+        // Le pre-braquage a fond etait la depuis l'origine, pour "etre pret a
+        // partir". C'est une mauvaise idee sur ce robot, et l'utilisateur l'a
+        // vu le 04/09/2026 : "il n'arrete pas de faire tourner le servomoteur".
+        // MPPI, quand il hesite, emet des consignes a vitesse quasi nulle avec
+        // une rotation : chacune faisait claquer le servo a +-45 degres A
+        // L'ARRET, en boucle. C'est le pire cas de couple pour un servo RC de
+        // 10 kg.cm, et cela ne sert a RIEN puisque ce tricycle ne peut de toute
+        // facon pas pivoter sur place.
+        // Reconduire l'angle courant supprime le battement sans rien coter :
+        // des que la vitesse repasse au-dessus de V_EPS_MPS, la formule
+        // bicyclette reprend la main au cycle suivant.
         *v_out = 0.0f;
-        if (fabsf(w) > W_EPS_RADPS) *delta_out = copysignf(STEER_MAX_RAD, w * STEER_X_M);
-        else                        *delta_out = 0.0f;
+        *delta_out = delta_courant;
         return fabsf(w) < W_EPS_RADPS;
     }
 
