@@ -43,8 +43,21 @@ bt_navigator:
     # A 0,30 m/s cela represente 3 cm de trajet entre deux evaluations : sans
     # consequence pour une tondeuse, et cela divise par dix le cout de parcours
     # de l'arbre. Le delai effectif devient 50 ms, soit 2,5 fois le defaut nav2.
-    bt_loop_duration: 100
-    default_server_timeout: 50
+    # 500 / 250 ET NON 100 / 50 DANS CE FICHIER (RPP garde 100 / 50).
+    # Le mecanisme est celui deja documente juste au-dessus : nav2 ECRETE
+    # default_server_timeout a bt_loop_duration * 0.5. A 100 ms de boucle, le
+    # delai d attente d un serveur d action ne vaut donc que 50 ms.
+    # MESURE le 04/09/2026 : MPPI tient 8 Hz la plupart du temps mais subit des
+    # blocages ISOLES de 1 a 3,4 s (cadence tombee a 0,29 puis 0,89 Hz). Un
+    # seul de ces blocages depasse les 50 ms d un facteur vingt : l arbre
+    # abandonnait le but en 2,6 s, robot immobile, alors que le planificateur
+    # avait bel et bien trouve un chemin.
+    # 500 ms de boucle = arbre a 2 Hz, ce qui reste au-dessus de la
+    # replanification a 1 Hz du RateController, et donne 250 ms de tolerance.
+    # A RESSERRER si les blocages de MPPI sont un jour elimines : un delai large
+    # masque une lenteur au lieu de la signaler.
+    bt_loop_duration: 500
+    default_server_timeout: 250
     # NOTRE arbre de comportement, et non celui de nav2. Un seul changement :
     # l'ordre des actions de degagement. L'amont essaie d'abord d'effacer les
     # costmaps, PUIS DE TOURNER SUR PLACE, PUIS D'ATTENDRE 5 s, et ne recule
@@ -410,7 +423,23 @@ local_costmap:
         # Consequence assumee : le robot gardera plus de distance aux obstacles
         # qu avec RPP. Pour eviter une personne, c est ce qu on veut ; pour
         # tondre au ras d une bordure, ce sera a rediscuter.
-        inflation_radius: 0.42
+        # 0,20 m ET NON 0,42 : MESURE le 04/09/2026, capture RViz a l appui.
+        # A 0,42 (rayon circonscrit, ce que reclame la bibliotheque) le robot
+        # etait EMMURE dans ce salon : 44 % de la costmap locale bloquante,
+        # 25 % seulement libre, et le plus grand disque a cout nul autour de
+        # lui ne faisait que 0,32 m de rayon -- pour un robot qui a besoin d un
+        # anneau de 0,485 m. Ni MPPI ni RPP ne peuvent manoeuvrer la-dedans.
+        # 0,20 m est SOUS le rayon inscrit (0,23), donc la bande bloquante
+        # autour de chaque obstacle tombe a 0,20 m au lieu de 0,23.
+        # MARGE REDUITE, ASSUMEE, POUR ESSAI EN INTERIEUR. Le robot est alors
+        # represente pour MPPI par un disque de 0,20 m, plus petit que sa
+        # realite (0,62 x 0,50 m) : il peut froler un coin avec son avant, qui
+        # depasse de 0,40 m. CE QUI RATTRAPE : le collision_monitor, lui,
+        # travaille sur l EMPREINTE EXACTE publiee, et coupe /cmd_vel 1,5 s
+        # avant contact. C est la derniere ligne de defense, et elle est juste.
+        # DEHORS, remonter a 0,42 : la place ne manque plus et la marge
+        # geometrique redevient gratuite.
+        inflation_radius: 0.20
         cost_scaling_factor: 3.0
       always_send_full_costmap: True
 
@@ -448,37 +477,21 @@ global_costmap:
           inf_is_valid: False
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # GLOBAL = planification. Halo LARGE et gradient DOUX : c'est ce qui
-        # ecarte le chemin des obstacles. A 5 cm le cout retombait a zero des
-        # 6 cm, donc raser un mur ne coutait pas plus cher que de passer au
-        # large -> le chemin collait aux obstacles. L'inflation ne bloque
-        # jamais au-dela du rayon inscrit du robot : elle ne fait qu'orienter.
-        # 0.30/2.5 = optimum MESURE (nodes/pathcheck.py, 8 buts a 1.6 m).
-        # 0.45 : chemins 8 % plus longs pour exactement la meme marge.
-        # 0.60 : contre-productif, marge tombee a 0.00 m -> une inflation trop
-        # large sature la carte, les halos se recouvrent, le gradient s'aplatit
-        # et le planificateur n'a plus rien pour se decider : il reprend le plus
-        # court, donc il rase. Ne pas monter au-dela de 0.30 dans un interieur.
-        # 0.50 : BALAYAGE MESURE avec nodes/pathcheck.py dans le salon encombre,
-        # 8 buts a 45 degres d intervalle. Ecart minimal chemin/obstacle observe :
-        #   0.30 -> aucun chemin trouve, ou 0,03 m quand il en trouvait un
-        #   0.45 -> 6 buts sur 8, ecart typique 0,13 a 0,42 m
-        #   0.60 -> 5 buts sur 8, ecart typique 0,22 a 0,27 m
-        # Le robot fait 0,27 m de demi-largeur : a 0.30 la marge etait NEGATIVE de
-        # 24 cm, le chemin traversait l emprise du robot.
-        # 0.50 est le compromis : on garde la joignabilite de 0.45 et l essentiel de
-        # l ecart de 0.60. Monter plus haut reduit le nombre de buts atteignables
-        # sans ameliorer le PIRE cas.
-        #
-        # CE QUE CE REGLAGE NE PEUT PAS CORRIGER : le pire ecart reste a 0,04 m dans
-        # les trois cas. Cela signifie qu au moins un passage est PLUS ETROIT que le
-        # robot. Aucune inflation n y changera rien -- il faut degager le passage, ou
-        # ne pas y envoyer le robot.
-        #
-        # La note precedente disait "0.60 contre-productif, marge tombee a 0.00" : ce
-        # releve venait d une arene de test de 2x2 m avec un cylindre, pas d une
-        # piece meublee. Les deux mesures sont vraies dans leur contexte.
-        inflation_radius: 0.50
+        # 0,18 m ICI ET SEULEMENT ICI (le fichier RPP garde 0,50, mesure et
+        # valide pour NavFn). Pourquoi : nav2 marque a 253
+        # (INSCRIBED_INFLATED_OBSTACLE, que Smac traite comme OCCUPE) toute
+        # cellule a moins du RAYON INSCRIT d un obstacle. La bande bloquante
+        # vaut donc min(inflation, 0,23). A 0,50 chaque obstacle -- meme un
+        # pied de chaise isole -- bloque un disque de 0,46 m de diametre, et
+        # les couloirs libres se referment : "no valid path found" en boucle.
+        # A 0,18 la bande tombe a 0,18 m et Smac retrouve des passages.
+        # DIVISION DU TRAVAIL ASSUMEE : le planificateur devient PERMISSIF (il
+        # trouve un chemin), le controleur reste CONSERVATEUR (MPPI + son
+        # inflation locale + le collision_monitor sur l empreinte exacte). Ce
+        # n est pas le planificateur qui garde le robot a distance.
+        # Contrepartie : les chemins passeront plus pres des obstacles qu avec
+        # les 0,50 mesures pour robot A. A remonter dehors.
+        inflation_radius: 0.18
         cost_scaling_factor: 2.5
       # TRUE, ET NE PAS LE REPASSER A FALSE. Je l avais mis a False pour soulager
       # le WiFi -- un gain THEORIQUE, jamais mesure -- et cela a rendu le costmap
