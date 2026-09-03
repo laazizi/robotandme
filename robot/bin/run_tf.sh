@@ -24,13 +24,21 @@ source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
 LIDAR_X="${MOWBOT_LIDAR_X:-+0.16}"
 LIDAR_Z="${MOWBOT_LIDAR_Z:-0.28}"
 # yaw : un lidar 360 deg n'a pas de champ oriente, mais son ANGLE ZERO doit
-# regarder vers l'avant du robot. Boitier tourne = carte PIVOTEE d'autant, donc
-# obstacles places a l'oppose de la realite -- sans aucune erreur signalee.
-# MESURE sur le robot 12 V (nodes/lidar_front.py, objet au contact de l'avant) :
-#   secteur AVANT   : 2.62 m  (rien vu)
-#   secteur ARRIERE : 0.41 m  (l'objet est la)
-# Le boitier est donc monte a 180 deg -> yaw = pi.
-LIDAR_YAW="${MOWBOT_LIDAR_YAW:-3.14159}"
+# pointer vers l'AVANT du robot, sinon tout le costmap est tourne d'autant.
+# Boitier tourne = carte PIVOTEE d'autant, donc obstacles places a l'oppose de
+# la realite, SANS aucune erreur signalee : c'est un piege silencieux.
+# MESURE d'origine (nodes/lidar_front.py, objet au contact de l'avant) :
+#   secteur AVANT 2.62 m (rien vu), secteur ARRIERE 0.41 m (l'objet est la)
+# -> le boitier etait monte a 180 deg de l'ANCIEN avant, d'ou yaw = pi.
+# C'est cette meme mesure qu'il faut refaire pour valider le yaw = 0. Le sens de marche a ete inverse ce jour-la (l'avant est le cote de la
+# roue directrice), donc base_link a tourne de 180 deg et ce yaw passe a ZERO.
+#   T_base'_laser = Rz(-pi) . Trans(-0.16,0,0.28) . Rz(pi)
+#                 = Trans(+0.16,0,0.28) . Rz(0)
+# NE PAS oublier ce yaw en changeant le X : je ne l'ai corrige que sur la
+# position, et le lidar voyait alors tout a 180 deg. La carte s'est construite
+# fausse et nav2 a commande 77 ordres de MARCHE ARRIERE pour un but droit
+# devant, en s'eloignant. Position et orientation vont ensemble.
+LIDAR_YAW="${MOWBOT_LIDAR_YAW:-0}"
 mowbot_log "lidar a x=$LIDAR_X z=$LIDAR_Z yaw=$LIDAR_YAW"
 "$STATIC_TF_BIN" --x "$LIDAR_X" --y 0 --z "$LIDAR_Z" \
   --roll 0 --pitch 0 --yaw "$LIDAR_YAW" \
