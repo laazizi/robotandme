@@ -145,7 +145,15 @@
 // Decision utilisateur du 03/09/2026 : 45 deg, pour que la roue interieure ne
 // recule jamais (seuil a 57,4 deg avec cette geometrie).
 #define SERVO_US_PER_RAD     (500.0f / STEER_MAX_RAD)
-#define SERVO_INVERT         0       // 1 si braquer a gauche tourne les roues a droite
+// MESURE le 4 septembre 2026, et c'est l'utilisateur qui avait raison depuis le
+// debut ("le servomoteur tourne du mauvais cote", repete plusieurs fois).
+// Commande +0,0962 rad/s (gauche) -> odometrie +0,0590 (le firmware CROIT
+// aller a gauche) mais GYROSCOPE -0,0442 : le robot tourne a DROITE. Le servo
+// est donc en MIROIR de la convention, d'ou cette inversion.
+// Pourquoi cela ne casse pas l'odometrie : steering_get() rend l'angle LOGIQUE
+// (s_delta), SERVO_INVERT n'agit que sur l'impulsion envoyee au servo. Le
+// modele et le materiel se retrouvent donc d'accord, au lieu d'etre opposes.
+#define SERVO_INVERT         1       // 1 si braquer a gauche tourne les roues a droite
 
 // ------------------------------------------------------------
 // Traction et regulation. Gains de mowbot 12 V, A REGLER ICI.

@@ -122,6 +122,24 @@ n'est **pas** mis en miroir : c'est un repère d'affichage, il reste à l'avant.
 mais l'utilisateur a ensuite indiqué 20 cm entre le **servo** et la **roue**.
 Seule cote qui compte : essieu moteur → point de contact de la roue directrice.
 
+**`SERVO_INVERT = 1`, mesuré le 4 septembre 2026.** Le servo est en miroir de
+la convention, et l'utilisateur le disait depuis le début. Preuve : commande
+`+0,0962 rad/s` (gauche) → odométrie `+0,0590` (le firmware croit aller à
+gauche) mais **gyroscope `−0,0442`** (le robot va à droite). Après correction,
+même commande → odométrie `+0,0575`, gyroscope `+0,0585` : les trois signes
+concordent. Pourquoi ça ne casse pas l'odométrie : `steering_get()` rend
+l'angle **logique**, `SERVO_INVERT` n'agit que sur l'impulsion.
+
+**Leçon de méthode, coûteuse** : la concordance odométrie/gyroscope mesurée le
+3 septembre (17 sur 17) ne prouvait **rien** sur le sens de virage. On montre
+que `ω_odom ≡ ω_commandé` par construction — l'inversion de commande et
+l'odométrie sont exactement réciproques — donc comparer odométrie et gyroscope
+teste bien la réalité *dans cette configuration-là*, mais j'en ai tiré une
+conclusion que le changement de repère a invalidée. **La seule mesure qui
+tranche est commande contre gyroscope**, et il a fallu quatre échanges pour la
+faire parce que le robot ne roulait pas pendant les écoutes. Écouter ne suffit
+pas : il faut publier la commande soi-même dans le même script.
+
 **Mesuré et validé au banc le 3 septembre 2026**, avant l'inversion. Servo sur **GPIO 14, qui FONCTIONNE** : résultat contre-intuitif, ses
 voisines 5, 6, 15 et 16 sont mortes et j'en avais déduit à tort que 14 le
 serait. Ne pas extrapoler la liste des broches mortes aux voisines.
