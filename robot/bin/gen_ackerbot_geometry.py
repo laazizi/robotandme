@@ -77,6 +77,9 @@ def generer():
         "ACKERBOT_MAX_VEL_THETA=%.2f" % w_max,
         "# position signee de la roue directrice (negatif = DERRIERE l'essieu moteur)",
         "ACKERBOT_STEER_X=%+.3f" % xs,
+        "# butee de braquage [rad] : borne du joint revolute de mowbot.urdf et",
+        "# ecretage de nodes/steer_state.py, qui anime la roue dans RViz",
+        "ACKERBOT_STEER_MAX_RAD=%.4f" % dmax,
         "",
     ])
 

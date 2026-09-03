@@ -141,9 +141,32 @@
       <material name="noir"/>
     </visual>
   </link>
-  <joint name="base_to_steer_wheel" type="fixed">
-    <parent link="base_link"/><child link="steer_wheel"/>
+  <!-- Pivot de direction : point FIXE ou la roue pivote autour de l'axe
+       vertical. Le decoupage en deux joints est ce qui permet a la roue de
+       TOURNER dans RViz : la position vient du joint fixe, l'angle du joint
+       revolute ci-dessous, anime par nodes/steer_state.py. -->
+  <link name="steer_pivot"/>
+  <joint name="base_to_steer_pivot" type="fixed">
+    <parent link="base_link"/><child link="steer_pivot"/>
     <origin xyz="-0.36 0 -0.043" rpy="0 0 0"/>
+  </joint>
+  <!-- ANGLE DE BRAQUAGE, seul joint MOBILE du modele. Il faut donc que
+       /joint_states soit publie, sinon robot_state_publisher laisse la roue a
+       zero : c'est exactement pourquoi elle ne tournait pas avant le
+       03/09/2026. Le publieur est nodes/steer_state.py, lance par
+       nodes/description.launch.py a cote de robot_state_publisher.
+       Bornes = STEER_MAX_RAD du firmware (0.7854 rad = 45 deg), via
+       config/ackerbot_geometry.env. Si l'angle configure change, regenerer ce
+       fichier ET corriger ces bornes ensemble.
+       Sens : angle POSITIF = roue vers la gauche du robot (repere ROS, z en
+       haut). Sur ce chassis la roue est DERRIERE l'essieu moteur, donc pour
+       virer a gauche elle pointe a DROITE : voir a l'affichage un braquage
+       oppose au virage est NORMAL ici. -->
+  <joint name="steer_joint" type="revolute">
+    <parent link="steer_pivot"/><child link="steer_wheel"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.7854" upper="0.7854" effort="1.0" velocity="3.0"/>
   </joint>
 
   <!-- ===== 4 montants en bois ===== -->
