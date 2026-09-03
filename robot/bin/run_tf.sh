@@ -21,7 +21,7 @@ source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
 # Toute modification ici doit etre reportee dans config/mowbot.urdf
 # (joint deck_to_lidar), sinon le modele dessine le lidar a un endroit et les
 # scans sortent d'un autre.
-LIDAR_X="${MOWBOT_LIDAR_X:--0.16}"
+LIDAR_X="${MOWBOT_LIDAR_X:-+0.16}"
 LIDAR_Z="${MOWBOT_LIDAR_Z:-0.28}"
 # yaw : un lidar 360 deg n'a pas de champ oriente, mais son ANGLE ZERO doit
 # regarder vers l'avant du robot. Boitier tourne = carte PIVOTEE d'autant, donc

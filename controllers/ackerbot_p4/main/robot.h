@@ -20,10 +20,22 @@
 // Broches IDENTIQUES a mowbot_p4, validees au banc : rien a redecabler.
 // Pas de differentiel mecanique => differentiel ELECTRONIQUE obligatoire,
 // calcule dans kin_ackermann.c (roue interieure ralentie en virage).
-#define PIN_MOTOR_L_PWM    22
-#define PIN_MOTOR_L_DIR    23
-#define PIN_MOTOR_R_PWM    20
-#define PIN_MOTOR_R_DIR    21
+// SENS DE MARCHE INVERSE le 4 septembre 2026 (utilisateur : "le robot roule en
+// arriere et non en direction du servo"). L'AVANT du robot est le cote de la
+// ROUE DIRECTRICE. Le repere base_link tourne donc de 180 deg : +x pointe vers
+// le servo, et GAUCHE/DROITE S'ECHANGENT. Les broches ne sont pas recablees,
+// c'est leur ROLE qui change :
+//   canal physique 22/23 (ex-gauche) -> desormais la roue DROITE
+//   canal physique 20/21 (ex-droite) -> desormais la roue GAUCHE
+// Et comme l'avant est l'oppose de l'ancien, les DEUX moteurs sont inverses.
+// A REVERIFIER AU BANC, roues en l'air : c'est exactement le genre d'echange
+// qui a deja coute une seance sur robot A (canaux M1/M2 permutes, detecte par
+// une rotation opposee a la commande). kin_bench_test() teste chaque roue
+// separement et son propre encodeur : c'est lui qui valide ces quatre signes.
+#define PIN_MOTOR_L_PWM    20
+#define PIN_MOTOR_L_DIR    21
+#define PIN_MOTOR_R_PWM    22
+#define PIN_MOTOR_R_DIR    23
 // Direction : servo RC, PWM 50 Hz. C'est le SEUL signal ajoute par ce robot,
 // donc la seule broche qui n'est pas heritee de mowbot.
 //
@@ -41,10 +53,12 @@
 #define PIN_SERVO          14
 // Encodeurs des roues ARRIERE. On GARDE les noms L/R : encoders.c est commun
 // et n'a pas a savoir qu'il s'agit d'un essieu arriere.
-#define PIN_ENC_L_A        27
-#define PIN_ENC_L_B        47
-#define PIN_ENC_R_A        33
-#define PIN_ENC_R_B        32
+// Encodeurs : meme echange que les moteurs (le repere a tourne de 180 deg).
+//   33/32 (ex-droite) -> roue GAUCHE      27/47 (ex-gauche) -> roue DROITE
+#define PIN_ENC_L_A        33
+#define PIN_ENC_L_B        32
+#define PIN_ENC_R_A        27
+#define PIN_ENC_R_B        47
 #define PIN_IMU_SDA        3
 #define PIN_IMU_SCL        2
 
@@ -82,7 +96,15 @@
 // au metre, MOWBOT_LIDAR_X de robot/bin/run_tf.sh et l'URDF concordent).
 //   -0.16 - 0.20 = -0.36  ->  roue directrice A L'ARRIERE.
 // (une premiere annonce donnait 15 cm, soit -0.31 : corrige le 3 septembre.)
-#define STEER_X_M            (-0.36f)
+// POSITIF depuis le 4 septembre 2026 : la roue directrice est DEVANT, puisque
+// l'avant du robot est son cote. Le modele redevient un tricycle classique --
+// roue directrice qui MENE, deux roues motrices derriere -- donc stable, et le
+// lidar passe en tete du sens de marche.
+// MAGNITUDE A CONFIRMER : 0,36 vient de "20 cm derriere le lidar". L'utilisateur
+// a ensuite indique que la roue est a 20 cm DU SERVO, ce qui donnerait 0,56 si
+// le servo est lui-meme a 20 cm du lidar. Seule cote qui compte : essieu moteur
+// -> point de contact de la roue directrice. A mesurer au metre.
+#define STEER_X_M            (+0.36f)
 // 45 deg = 0,7854 rad. DEDUIT, a confirmer au banc : servo du marche 180 deg,
 // qui parcourt ces 180 deg sur 500-2500 us ; or SERVO_MIN_US/MAX_US valent
 // 1000/2000, soit la MOITIE de la plage -> 90 deg de course, +-45 deg.
@@ -134,8 +156,14 @@
 // sol (l'echange L<->R des canaux M1/M2, cf. memoire board-usable-gpio).
 // A reverifier quand meme au banc : si le chassis Ackermann inverse un moteur
 // ou un encodeur par rapport a la tondeuse, c'est ici que ca se corrige.
-#define MOTOR_L_INVERT       0
-#define MOTOR_R_INVERT       0
+// Les DEUX moteurs inverses : l'avant est l'oppose de l'ancien sens.
+#define MOTOR_L_INVERT       1
+#define MOTOR_R_INVERT       1
+// Les encodeurs GARDENT ces valeurs, et ce n'est pas un oubli : l'echange
+// gauche/droite et l'inversion du sens de marche se COMPENSENT exactement.
+// 33/32 comptait - dans l'ancien avant (d'ou ENC_R_INVERT=1 avant) donc + dans
+// le nouveau : en roue GAUCHE il ne faut pas l'inverser. 27/47 comptait + dans
+// l'ancien avant donc - dans le nouveau : en roue DROITE il faut l'inverser.
 #define ENC_L_INVERT         0       // au banc : chaque roue doit compter + en avant
 #define ENC_R_INVERT         1
 #define FF_GAIN              0.0f    // mowbot suivait a 83 % sans FF : 1.0 est un bon depart

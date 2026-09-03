@@ -1,5 +1,6 @@
-# nav2 pour ACKERBOT : le chassis de robot A converti en TRICYCLE (roue
-# directrice a servo, DERRIERE l'essieu moteur, x_s = -0.36 m).
+# nav2 pour ACKERBOT : le chassis de robot A converti en TRICYCLE CLASSIQUE
+# (roue directrice a servo DEVANT l'essieu moteur, x_s = +0.36 m ; sens de
+# marche inverse le 04/09/2026, l'avant est le cote de la roue directrice).
 #
 # DERIVE de nav2_params.yaml (robot A) le 03/09/2026 : tout ce qui a ete regle
 # par des mesures y est conserve a l'identique (costmaps, delais, inflation,
@@ -201,11 +202,13 @@ local_costmap:
       # Contour REEL (base_link = milieu de l'essieu), releve sur photo :
       #   - disque bois rayon 0.22
       #   - point le plus large = les PNEUS, +/-0.26 (entraxe 0.48 + largeur roue)
-      #   - bras arriere portant la ROUE DIRECTRICE : contact a -0.36, rayon
-      #     ~0.032 -> arriere de l'empreinte a -0.40 (etait -0.27 avec la
-      #     roulette). 13 cm de plus : IMPORTANT en marche arriere, que
-      #     Reeds-Shepp utilise, et parce qu'en direction ARRIERE c'est la
-      #     queue qui balaie en virage.
+      #   - bras AVANT portant la ROUE DIRECTRICE : contact a +0.36, rayon
+      #     ~0.032 -> avant de l'empreinte a +0.40. L'empreinte a ete mise en
+      #     MIROIR le 04/09/2026 avec l'inversion du sens de marche : l'avant
+      #     du robot est le cote de la roue directrice. Le point le plus
+      #     eloigne du centre de rotation reste un coin, et la roue directrice
+      #     deborde de 0,139 m au-dela du cercle de l'essieu moteur : ce
+      #     debordement se produit desormais DEVANT, la ou le lidar regarde.
       # Un robot_radius unique devrait couvrir 0.27 partout, soit 5 cm de
       # bourrelet inutile tout autour -> passages refuses sans raison. Utile
       # aussi maintenant que la marche arriere est autorisee : la languette
@@ -221,7 +224,7 @@ local_costmap:
       # ATTENTION : 3 mm, c'est peu. Une erreur de localisation d'un centimetre
       # suffit alors a ce que la roue touche VRAIMENT. Cette marge a ete reduite
       # sciemment ; ne pas la rogner davantage sans y repenser.
-      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.40, 0.08], [-0.40, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
+      footprint: "[[-0.22, -0.10], [-0.08, -0.25], [0.08, -0.25], [0.20, -0.14], [0.40, -0.08], [0.40, 0.08], [0.20, 0.14], [0.08, 0.25], [-0.08, 0.25], [-0.22, 0.10]]"
       # 1 cm (etait 2) : marge ajoutee TOUT AUTOUR du contour. Le contour est
       # deja releve au reel ; 2 cm de plus rendaient des passages justes
       # inexecutables -- le planificateur global les jugeait franchissables et
@@ -290,7 +293,7 @@ global_costmap:
       robot_base_frame: base_link
       resolution: 0.04
       # meme contour reel que le local_costmap (cf. commentaire plus haut)
-      footprint: "[[0.22, 0.10], [0.08, 0.25], [-0.08, 0.25], [-0.20, 0.14], [-0.40, 0.08], [-0.40, -0.08], [-0.20, -0.14], [-0.08, -0.25], [0.08, -0.25], [0.22, -0.10]]"
+      footprint: "[[-0.22, -0.10], [-0.08, -0.25], [0.08, -0.25], [0.20, -0.14], [0.40, -0.08], [0.40, 0.08], [0.20, 0.14], [0.08, 0.25], [-0.08, 0.25], [-0.22, 0.10]]"
       footprint_padding: 0.01
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -411,8 +414,29 @@ planner_server:
       # produit 75 % d'erreur sur cette valeur. Sous-estimer ce rayon fait
       # planifier des virages que le robot ne peut pas prendre.
       minimum_turning_radius: 0.36
-      # reculer coute 2x : on ne recule que quand ca vaut vraiment le coup
-      reverse_penalty: 2.0
+      # MARCHE ARRIERE = MOYEN DE MANOEUVRE, PAS MODE DE DEPLACEMENT.
+      # Exigence de l'utilisateur du 04/09/2026 : le robot peut reculer pour
+      # TOURNER, pas pour naviguer. Smac multiplie le cout d'un segment arriere
+      # par ce facteur, donc reculer de d metres n'est retenu que si cela
+      # economise plus de (P-1)*d metres de trajet AVANT :
+      #     P=2  (defaut nav2, ancienne valeur) : recule librement, meme pour
+      #          simplement avancer -> ce n'est pas ce qu'on veut
+      #     P=8  : reculer 0,5 m doit economiser 3,5 m ; reculer 3 m, 21 m
+      #          -> le deplacement en marche arriere ne se produit plus
+      # CE QUE CELA N'INTERDIT PAS, et c'est le point : quand la boucle en
+      # marche avant NE PASSE PAS (haie, mur, rangee serree), elle est
+      # infaisable a n'importe quel prix ; le demi-tour en trois points reste
+      # alors le seul chemin trouve, donc choisi. La penalite ne supprime pas
+      # la marche arriere, elle la DIFFERE jusqu'a ce qu'elle soit necessaire.
+      # NE PAS mettre allow_reversing a false dans RPP pour autant : le
+      # controleur doit pouvoir EXECUTER ces segments, et la recuperation
+      # BackUp de l'arbre en depend (c'est la seule qui reste depuis le retrait
+      # de Spin). Interdire au controleur ce que le planificateur produit
+      # bloquerait le robot.
+      # Repere geometrique : un demi-tour en marche avant seule n'est possible
+      # que si l'ecart entre rangees depasse 2*R_min = 0,80 m ; en dessous il
+      # faut environ 1 m de degagement au bout de la rangee.
+      reverse_penalty: 8.0
       change_penalty: 0.0
       non_straight_penalty: 1.2
       cost_penalty: 2.0

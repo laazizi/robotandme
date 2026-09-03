@@ -3,7 +3,7 @@
 set -u
 cd "$(dirname "$(readlink -f "$0")")"
 echec=0
-for geo in "-0.36f:ackerbot_p4 (roue DERRIERE)" "+0.36f:variante roue DEVANT"; do
+for geo in "+0.36f:ackerbot_p4 (roue DEVANT)" "-0.36f:variante roue DERRIERE"; do
   xs="${geo%%:*}"; nom="${geo#*:}"
   echo "=============================================================="
   echo "  $nom   STEER_X_M = $xs"

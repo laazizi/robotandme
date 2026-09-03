@@ -2,23 +2,27 @@
 <!-- mowbot — modele fidele au chassis actuel (photos) :
      - plateau de base ROND en BOIS clair (~Ø44 cm)
      - 2 roues motrices Ø15 cm, pneus BLANCS + jantes noires
-     - ROUE DIRECTRICE a l'arriere, commandee par un servo RC (depuis le
-       03/09/2026 : elle remplace la roulette folle). Contact a x = -0.36,
-       soit 20 cm derriere le lidar. C'est STEER_X_M de
-       controllers/ackerbot_p4/main/robot.h, et le signe compte : etant
-       DERRIERE l'essieu moteur, le robot tourne a l'oppose d'un tricycle
-       classique pour un meme braquage.
+     - ROUE DIRECTRICE a l'AVANT, commandee par un servo RC (elle remplace la
+       roulette folle). Contact a x = +0.36, c'est STEER_X_M de
+       controllers/ackerbot_p4/main/robot.h.
+       SENS DE MARCHE INVERSE LE 04/09/2026 : l'avant du robot est le cote de
+       la roue directrice, sur indication de l'utilisateur ("le robot roule en
+       arriere et non en direction du servo"). Tout le modele a donc ete mis en
+       MIROIR (x et y), le lidar est passe de -0.16 a +0.16, et les etiquettes
+       avant/arriere et gauche/droite ont ete reassignees d'apres les positions
+       obtenues — sans quoi on recreait la confusion qui a coute des heures.
+       Le robot est desormais un TRICYCLE CLASSIQUE : roue directrice qui MENE,
+       deux roues motrices derriere, lidar en tete du sens de marche.
      - 4 montants en bois soutenant un plateau ALU en etage (~27 cm)
      - LIDAR (noir) sur le plateau alu, 10 cm en ARRIERE du centre, 28 cm de
        haut (16 cm mesures au metre). DOIT correspondre a MOWBOT_LIDAR_X de
        bin/run_tf.sh : l'autre robot du projet l'a a +0.10, celui-ci a -0.16.
      - batterie bleue + electronique (MDD10A, DevKitC) sur la base
      base_link : centre du robot, a hauteur d'axe des roues.
-     x = AVANT : c'est front_marker (+0.205) qui fait foi, ainsi que les
-     montants avant (+0.13) et arriere (-0.10). Le LIDAR est donc A L'ARRIERE
-     (-0.16), tout comme la roue directrice (-0.36). Une version precedente de
-     ce commentaire annoncait "x = AVANT (cote lidar)" : c'etait FAUX, et cette
-     erreur a failli faire coder le modele de direction a l'envers. -->
+     x = AVANT = cote de la ROUE DIRECTRICE et du LIDAR (tous deux a x > 0
+     depuis l'inversion du 04/09/2026). front_marker (+0.205) le repere en
+     rouge et n'a PAS ete mis en miroir : c'est un repere d'affichage, il doit
+     rester a l'avant. -->
 <robot name="mowbot">
 
   <material name="bois">      <color rgba="0.85 0.72 0.50 1.0"/></material>
@@ -51,19 +55,19 @@
        deborde de ~5 cm du disque, sur ~15 cm de large seulement. C'est le seul
        endroit ou le robot n'est pas un disque -> le footprint nav2 la reprend
        telle quelle plutot que d'elargir tout l'arriere. -->
-  <link name="rear_ext">
+  <link name="steer_arm">
     <visual>
       <geometry><box size="0.16 0.15 0.018"/></geometry>
       <material name="bois"/>
     </visual>
   </link>
-  <!-- Bras arriere : il doit desormais porter la roue directrice a -0.36,
-       alors que le plateau rond s'arrete vers -0.22. Longueur et position
-       DEDUITES de ces deux extremites, pas mesurees : seul le point de contact
-       de la roue l'est. A corriger si le bras reel differe. -->
-  <joint name="base_to_rear_ext" type="fixed">
-    <parent link="base_link"/><child link="rear_ext"/>
-    <origin xyz="-0.29 0 -0.02"/>
+  <!-- Bras de direction : il porte la roue directrice a +0.36, alors que le
+       plateau rond s'arrete vers +0.22. Longueur et position DEDUITES de ces
+       deux extremites, pas mesurees : seul le point de contact de la roue
+       l'est. A corriger si le bras reel differe. -->
+  <joint name="base_to_steer_arm" type="fixed">
+    <parent link="base_link"/><child link="steer_arm"/>
+    <origin xyz="0.29 0 -0.02"/>
   </joint>
 
   <!-- ===== Roues motrices (pneus blancs) ===== -->
@@ -126,7 +130,10 @@
   <!-- ===== Roulette folle arriere ===== -->
   <!-- ===== Roue DIRECTRICE arriere (servo RC sur GPIO 14) =====
        Remplace la roulette folle depuis le 03/09/2026.
-       x = -0.36 : MESURE (20 cm derriere le lidar, lui-meme a -0.16).
+       x = +0.36 : la roue est DEVANT (inversion du 04/09/2026). Magnitude
+       A CONFIRMER AU METRE : 0.36 venait de "20 cm derriere le lidar", mais
+       l'utilisateur a ensuite indique 20 cm entre le SERVO et la ROUE. Seule
+       cote qui compte : essieu moteur -> point de contact de la roue.
        z = -0.043 : le sol est a -0.0753 (rayon des roues motrices), donc une
        roue de rayon 0.032 a son axe a -0.0433. Le rayon 0.032 est celui de
        l'ancienne roulette et n'a PAS ete remesure : s'il change, corriger le
@@ -148,7 +155,7 @@
   <link name="steer_pivot"/>
   <joint name="base_to_steer_pivot" type="fixed">
     <parent link="base_link"/><child link="steer_pivot"/>
-    <origin xyz="-0.36 0 -0.043" rpy="0 0 0"/>
+    <origin xyz="0.36 0 -0.043" rpy="0 0 0"/>
   </joint>
   <!-- ANGLE DE BRAQUAGE, seul joint MOBILE du modele. Il faut donc que
        /joint_states soit publie, sinon robot_state_publisher laisse la roue a
@@ -159,9 +166,10 @@
        config/ackerbot_geometry.env. Si l'angle configure change, regenerer ce
        fichier ET corriger ces bornes ensemble.
        Sens : angle POSITIF = roue vers la gauche du robot (repere ROS, z en
-       haut). Sur ce chassis la roue est DERRIERE l'essieu moteur, donc pour
-       virer a gauche elle pointe a DROITE : voir a l'affichage un braquage
-       oppose au virage est NORMAL ici. -->
+       haut). La roue etant DEVANT l'essieu moteur, le comportement est celui
+       d'une voiture ordinaire : pour virer a gauche elle pointe a GAUCHE.
+       (Avant l'inversion du 04/09/2026 c'etait l'inverse, et c'etait la source
+       de la confusion sur le "servo qui tourne du mauvais cote".) -->
   <joint name="steer_joint" type="revolute">
     <parent link="steer_pivot"/><child link="steer_wheel"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -170,18 +178,18 @@
   </joint>
 
   <!-- ===== 4 montants en bois ===== -->
-  <link name="post_fl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
-  <joint name="j_post_fl" type="fixed"><parent link="base_link"/><child link="post_fl"/>
-    <origin xyz="0.13 0.12 0.125"/></joint>
-  <link name="post_fr"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
-  <joint name="j_post_fr" type="fixed"><parent link="base_link"/><child link="post_fr"/>
-    <origin xyz="0.13 -0.12 0.125"/></joint>
-  <link name="post_rl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
-  <joint name="j_post_rl" type="fixed"><parent link="base_link"/><child link="post_rl"/>
-    <origin xyz="-0.10 0.12 0.125"/></joint>
   <link name="post_rr"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
   <joint name="j_post_rr" type="fixed"><parent link="base_link"/><child link="post_rr"/>
-    <origin xyz="-0.10 -0.12 0.125"/></joint>
+    <origin xyz="-0.13 -0.12 0.125"/></joint>
+  <link name="post_rl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_rl" type="fixed"><parent link="base_link"/><child link="post_rl"/>
+    <origin xyz="-0.13 0.12 0.125"/></joint>
+  <link name="post_fr"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_fr" type="fixed"><parent link="base_link"/><child link="post_fr"/>
+    <origin xyz="0.1 -0.12 0.125"/></joint>
+  <link name="post_fl"><visual><geometry><box size="0.04 0.04 0.27"/></geometry><material name="bois"/></visual></link>
+  <joint name="j_post_fl" type="fixed"><parent link="base_link"/><child link="post_fl"/>
+    <origin xyz="0.1 0.12 0.125"/></joint>
 
   <!-- ===== Plateau superieur en alu ===== -->
   <link name="deck">
@@ -192,7 +200,7 @@
   </link>
   <joint name="base_to_deck" type="fixed">
     <parent link="base_link"/><child link="deck"/>
-    <origin xyz="0.02 0 0.262"/>
+    <origin xyz="-0.02 0 0.262"/>
   </joint>
 
   <!-- ===== LIDAR N10 (corps ; le repere laser_link vient de la TF) ===== -->
@@ -215,7 +223,7 @@
          alors que les TF sont justes.
          Le modele n'a AUCUN effet sur la navigation, il ne sert qu'a
          l'affichage. Mais un dessin faux fait chercher des pannes inexistantes. -->
-    <origin xyz="-0.16 0 0.288"/>
+    <origin xyz="0.16 0 0.288"/>
   </joint>
 
   <!-- ===== Batterie bleue sur la base ===== -->
@@ -227,7 +235,7 @@
   </link>
   <joint name="base_to_battery" type="fixed">
     <parent link="base_link"/><child link="battery"/>
-    <origin xyz="-0.02 0.05 0.027" rpy="0 0 0.15"/>
+    <origin xyz="0.02 -0.05 0.027" rpy="0 0 0.15"/>
   </joint>
 
   <!-- ===== Electronique (driver + DevKitC) ===== -->
@@ -239,7 +247,7 @@
   </link>
   <joint name="base_to_electronics" type="fixed">
     <parent link="base_link"/><child link="electronics"/>
-    <origin xyz="0.06 -0.09 0.007" rpy="0 0 -0.2"/>
+    <origin xyz="-0.06 0.09 0.007" rpy="0 0 -0.2"/>
   </joint>
 
   <!-- ===== Boitier Jetson sur le plateau ===== -->
@@ -251,7 +259,7 @@
   </link>
   <joint name="deck_to_jetson" type="fixed">
     <parent link="base_link"/><child link="jetson"/>
-    <origin xyz="-0.06 -0.06 0.287" rpy="0 0 0.1"/>
+    <origin xyz="0.06 0.06 0.287" rpy="0 0 0.1"/>
   </joint>
 
   <!-- ===== Marqueur AVANT (rouge) ===== -->

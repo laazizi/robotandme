@@ -104,9 +104,25 @@ robot A, plus des placeholders. Restent deux inconnues, et elles ne peuvent pas
 mesurées : **`WHEELBASE_M`** (essieu moteur → contact de la roue directrice) et
 **`STEER_MAX_RAD`** (butée mécanique).
 
-**Mesuré et validé au banc le 3 septembre 2026** : `STEER_X_M = −0,36 m` (roue
-directrice **derrière** l'essieu moteur — 20 cm derrière le lidar, lui-même à
-−0,16 m). Servo sur **GPIO 14, qui FONCTIONNE** : résultat contre-intuitif, ses
+**SENS DE MARCHE INVERSÉ le 4 septembre 2026** (utilisateur : « le robot roule
+en arrière et non en direction du servo »). **L'avant du robot est le côté de la
+roue directrice** : `STEER_X_M` passe à **+0,36 m**, le robot devient un
+**tricycle classique** — roue directrice qui mène, deux roues motrices derrière,
+donc stable, et **le lidar passe en tête du sens de marche** (+0,16 au lieu de
+−0,16). C'était la source de toute la confusion sur « le servo qui tourne du
+mauvais côté » : le logiciel appelait « avant » le côté opposé au servo, la
+configuration était cohérente avec elle-même mais à l'envers du robot.
+Ont été mis en miroir ensemble : `robot.h` (broches moteur et encodeurs
+échangées, les deux moteurs inversés — les drapeaux d'encodeur gardent leurs
+valeurs, l'échange gauche/droite et l'inversion du sens se compensant), l'URDF
+entier avec réattribution des étiquettes avant/arrière et gauche/droite d'après
+les positions obtenues, `MOWBOT_LIDAR_X`, et l'empreinte nav2. `front_marker`
+n'est **pas** mis en miroir : c'est un repère d'affichage, il reste à l'avant.
+**Magnitude à confirmer au mètre** : 0,36 venait de « 20 cm derrière le lidar »,
+mais l'utilisateur a ensuite indiqué 20 cm entre le **servo** et la **roue**.
+Seule cote qui compte : essieu moteur → point de contact de la roue directrice.
+
+**Mesuré et validé au banc le 3 septembre 2026**, avant l'inversion. Servo sur **GPIO 14, qui FONCTIONNE** : résultat contre-intuitif, ses
 voisines 5, 6, 15 et 16 sont mortes et j'en avais déduit à tort que 14 le
 serait. Ne pas extrapoler la liste des broches mortes aux voisines.
 Encodeurs et moteurs vérifiés roue par roue : aucune permutation de canaux,

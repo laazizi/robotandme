@@ -5,7 +5,7 @@
 // (roue directrice devant / derriere, notamment).
 
 #ifndef STEER_X_M
-#define STEER_X_M       (-0.36f)   // ackerbot_p4 : roue directrice A L'ARRIERE
+#define STEER_X_M       (+0.36f)   // ackerbot_p4 : roue directrice A L AVANT
 #endif
 #ifndef TRACK_WIDTH_M
 #define TRACK_WIDTH_M    0.4607f   // entraxe calibre de robot A
