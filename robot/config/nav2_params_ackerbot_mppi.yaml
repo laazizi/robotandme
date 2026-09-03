@@ -211,7 +211,14 @@ controller_server:
       # 1500 et non 2000 (defaut) : la Jetson NX a 6 coeurs dont ~3 libres, et
       # CostCritic avec consider_footprint est couteux (voir plus bas). A
       # ajuster APRES mesure de charge, pas avant.
-      batch_size: 800
+      # 400 : ESSAI 5. Avec consider_footprint true et une inflation de 0,05,
+      # la bibliotheque ne peut PAS accelerer le test d'empreinte par le champ
+      # de cout -- chaque point teste rasterise le polygone complet. Le volume
+      # de travail sous le verrou du costmap est donc proportionnel a
+      # batch_size x time_steps / trajectory_point_step. On le divise par
+      # quatre (800->400 et pas 4->8) apres avoir vu la baisse du costmap a
+      # 2,5 Hz faire ENFIN bouger le robot (0,97 m contre 0,00 m).
+      batch_size: 400
       iteration_count: 1
       temperature: 0.3
       gamma: 0.015
@@ -302,7 +309,12 @@ controller_server:
         consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
-        trajectory_point_step: 4
+        # 8 : un point sur huit teste, au lieu d'un sur quatre. A 0,30 m/s et
+        # model_dt 0,125 s, un pas fait 3,75 cm : on teste donc l'empreinte tous
+        # les 30 cm. Le robot faisant 0,50 m de large, les empreintes
+        # successives se recouvrent encore largement -- aucun obstacle plus
+        # large que 30 cm ne peut se glisser entre deux tests.
+        trajectory_point_step: 8
       GoalCritic:
         enabled: true
         cost_power: 1
@@ -344,16 +356,26 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
+      # 2,5 Hz DANS CE FICHIER (RPP garde 5,0, valide au sol).
+      # HYPOTHESE TESTEE ICI : MPPI ne rate pas sa cadence par manque de
+      # puissance mais parce qu'il ATTEND. Mesure : boucle a 1,78 Hz pendant que
+      # le processus n'utilisait que 19 % d'UN coeur sur six, machine inactive a
+      # 40 % -- soit 0,11 s de calcul pour 0,45 s d'attente par cycle. Le
+      # suspect est le verrou du costmap, pris a chaque mise a jour pendant que
+      # le controleur veut le lire pour ses tests d'empreinte.
+      # C'est la MEME cause que celle deja documentee pour robot A (ci-dessous),
+      # ou monter le costmap a 10 Hz avait fait tomber le controleur a 2,17 Hz
+      # pour 43 % d'un coeur. Ici on descend au lieu de monter.
+      # 2,5 Hz reste coherent avec le lidar a 6 Hz : ~2,4 scans par mise a jour,
+      # aucune information reelle perdue. A remonter si la cadence ne bouge pas,
+      # ce qui invaliderait l'hypothese.
+      #
+      # Note d'origine de robot A, conservee car elle explique le mecanisme :
       # RETOUR A 5 Hz. Je l avais monte a 10 pour l aligner sur
       # controller_frequency, sur un raisonnement -- jamais sur une mesure. Cela
       # double le travail de raytracing du costmap, et le controleur BLOQUE sur le
       # verrou du costmap pendant sa mise a jour.
-      # Symptome constate ensuite : le controleur tournait a 2,17 a 5,76 Hz au lieu
-      # de 10, tout en n utilisant que 43 % d UN coeur sur six -- donc il ATTENDAIT,
-      # il ne calculait pas. La machine avait 65 % d inactivite (213 % sur 600 %).
-      # 5 Hz reste deux fois la cadence du lidar (2,5 scans par mise a jour) : on ne
-      # perd aucune information reelle, le lidar ne fournit rien de plus vite.
-      update_frequency: 5.0
+      update_frequency: 2.5
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
