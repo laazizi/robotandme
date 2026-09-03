@@ -246,9 +246,16 @@ les deux comptent + en avant, donc `MOTOR_L/R_INVERT=0`, `ENC_L_INVERT=0` et
 - Coverage planning (opennav_coverage / Fields2Cover).
 - Contrôle lame + capteurs de sécurité (soulèvement, bumper).
 - nav2 (robot A : en cours, voir `robot/config/nav2_params.yaml`).
-- nav2 Ackermann : écrit, **à éprouver au sol** (`MOWBOT_ROBOT=ackerbot` dans
-  `~/mowbot/robot_profile.env`, puis `mowbot nav`). Premier essai en
-  téléopération d'abord, puis un but proche sans obstacle.
+- ~~nav2 Ackermann : à éprouver au sol~~ **VALIDÉ AU SOL le 4 septembre 2026**
+  (utilisateur : « j'ai testé la navigation cela marche bien »). Premier but :
+  2 m, arrivée à **0,07 m**, écart latéral **0,02 m**, 29 points de chemin,
+  **67 commandes en avant et zéro en arrière**, v max 0,300 m/s. Profil
+  `MOWBOT_ROBOT=ackerbot` actif sur la Jetson.
+  **Reste à éprouver : le virage serré.** Ce but était presque droit (braquage
+  max 0,108 rad/s), donc l'affectation gauche/droite des encodeurs n'a pas été
+  mise à l'épreuve — elle est invisible en ligne droite et invisible dans
+  l'odométrie, qui tire son cap de l'angle de braquage et jamais de la
+  différence des roues. Un but placé sur le côté à 1,5 m la révélerait.
 - Ackermann : `STEER_MAX_RAD` déduit (45°) reste à **confirmer au rapporteur**
   en butée ; mesurer la masse sur la roue directrice (couple servo 10 kg·cm,
   limite vers 6 kg) ; passer à deux roues directrices si le tricycle se
