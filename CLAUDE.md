@@ -172,9 +172,17 @@ les deux comptent + en avant, donc `MOTOR_L/R_INVERT=0`, `ENC_L_INVERT=0` et
   installé sur le PC. Smac Hybrid se configure en **24 s** sur la NX avec
   `lookup_table_size: 10.0` (84 s à 20.0, le défaut : table 500×500×64 caps) ;
   le `lifecycle_manager` n'a aucun délai de configuration, seul `bond_timeout`
-  joue après activation. Leçon de méthode : ne jamais `pkill -f` un motif
-  présent dans la ligne de commande du shell courant — un script copié, pas un
-  heredoc (déjà dans la mémoire du projet, redécouvert deux fois ce soir). **La config de robot A n'a pas
+  joue après activation. **Mais `configure` ne suffit pas** : les arbres XML se
+  chargent à l'**activation**. Premier lancement réel : `bt_navigator` a échoué
+  (« Action server spin not available ») parce qu'il charge **deux** arbres —
+  `NavigateToPose` **et** `NavigateThroughPoses` — et que seul le premier avait
+  été remplacé ; le second retombait sur l'arbre amont de nav2, avec `Spin`.
+  Corrigé par `bt_ackerbot_through_poses.xml` et
+  `default_nav_through_poses_bt_xml`. Règle : **qui retire un comportement doit
+  remplacer les deux arbres**, et un essai à blanc doit aller jusqu'à `activate`.
+  Leçon de méthode : ne jamais `pkill -f` un motif présent dans la ligne de
+  commande du shell courant — un script copié, pas un heredoc (déjà dans la
+  mémoire du projet, redécouvert deux fois ce soir). **La config de robot A n'a pas
   été touchée.** Pourquoi tout ça : `Spin`, `RotateToGoal`, `RotationShim` et
   DWB supposent une rotation sur place ; à chaque demande le firmware refuse et
   braque à fond à l'arrêt, puis maintient — pire cas pour un servo de 10 kg·cm.

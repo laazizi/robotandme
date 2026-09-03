@@ -84,7 +84,7 @@ Le SBC choisit son profil dans `~/mowbot/robot_profile.env` :
 ```
 MOWBOT_ROBOT=a          # tondeuse P4, 12 V           -> nav2_params.yaml + speeds.env (A_*)
 MOWBOT_ROBOT=b          # tondeuse WROOM, 24 V        -> nav2_params.yaml + speeds.env (B_*)
-MOWBOT_ROBOT=ackerbot   # tricycle a roue directrice  -> nav2_params_ackerbot.yaml + bt_ackerbot.xml
+MOWBOT_ROBOT=ackerbot   # tricycle a roue directrice  -> nav2_params_ackerbot.yaml + bt_ackerbot*.xml
 ```
 
 Sans fichier, profil **B par sécurité** (vitesses les plus basses). `start_nav.sh`
@@ -94,7 +94,10 @@ n'est jamais modifié.
 **Ackermann** (`bin/nav_profile_ackerbot.sh`) : ce robot ne pivote pas sur place,
 donc DWB, NavFn et la récupération `Spin` lui sont interdits — il reçoit
 Regulated Pure Pursuit (marche arrière autorisée, pas de rotation vers le cap),
-SmacPlannerHybrid en Reeds-Shepp, et un arbre sans `Spin`. Le **rayon de
+SmacPlannerHybrid en Reeds-Shepp, et **deux** arbres sans `Spin` —
+`bt_ackerbot.xml` (NavigateToPose) et `bt_ackerbot_through_poses.xml`
+(NavigateThroughPoses) : `bt_navigator` charge les deux à l'activation, et n'en
+remplacer qu'un fait échouer toute la pile. Le **rayon de
 braquage minimal n'est jamais saisi à la main** : `bin/gen_ackerbot_geometry.py`
 le dérive de `controllers/ackerbot_p4/main/robot.h` dans
 `config/ackerbot_geometry.env` (à relancer après toute modification de la
