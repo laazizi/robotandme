@@ -105,7 +105,19 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.05
-      movement_time_allowance: 30.0
+      # 8 s ET NON 30 DANS CE FICHIER (RPP garde 30, valide au sol).
+      # MESURE le 04/09/2026 : c'est CE paramETRE qui faisait attendre
+      # l'utilisateur. Le journal disait "Failed to make progress" -- le robot
+      # doit rester coince ce temps-la AVANT que nav2 le declare bloque et
+      # lance la recuperation (effacement des costmaps, puis marche arriere).
+      # Trente secondes d'immobilite avant de reagir, c'est intenable a l'usage,
+      # et cela dominait de loin tout le reste : le rythme de l'arbre a 2 Hz
+      # n'ajoute qu'une seconde ou deux a cote.
+      # 8 s reste large : a 0,30 m/s il faut moins d'une seconde pour parcourir
+      # les 5 cm exiges, et une manoeuvre serree legitime tient dans ce delai.
+      # NE PAS descendre trop bas : MPPI subit des blocages isoles de 1 a 3,4 s,
+      # et un seuil sous ~5 s declencherait des recuperations pour rien.
+      movement_time_allowance: 8.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       # robot de 58 cm de long : viser 8 cm etait irrealiste (le dernier
@@ -273,21 +285,21 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # FALSE depuis l essai 3 (04/09/2026), et c est LE correctif de cadence.
-        # En mode empreinte, CostCritic teste un polygone de 10 sommets pour
-        # chaque point de chaque trajectoire -- des dizaines de milliers de
-        # consultations SOUS LE VERROU DU COSTMAP. Mesure : la boucle tombait a
-        # 1,78 Hz alors que le CPU restait a 19 % d un coeur, donc elle
-        # ATTENDAIT. Meme signature que celle deja documentee pour robot A
-        # (costmap local monte a 10 Hz : 2,17 a 5,76 Hz pour 43 % d un coeur).
-        # Halver l echantillonnage n y avait presque rien change, ce qui
-        # confirme que le cout n est pas dans le nombre de trajectoires.
-        # CONTREPARTIE OBLIGATOIRE : le robot devient un POINT pour ce critere,
-        # sa taille doit donc etre portee par l INFLATION -- voir le
-        # local_costmap de CE fichier, monte a 0,42 m. C est la configuration
-        # MPPI standard ; l inflation minuscule de robot A n existe que parce
-        # que DWB utilisait ObstacleFootprint, un paradigme different.
-        consider_footprint: false
+        # TRUE, ET NE PLUS LE REPASSER A FALSE SANS INFLATION >= 0,42 m.
+        # J'ai mis false le 04/09/2026 pour gagner de la cadence, avec une
+        # inflation de 0,20 m : le robot A ALORS TOUCHE DES OBSTACLES, et
+        # l'utilisateur l'a vu tout de suite ("pourquoi il touche des obstacles
+        # alors que l'algo d'avant n'avait pas ce probleme ?").
+        # ARITHMETIQUE DE LA FAUTE : en mode point, c'est l'inflation qui PORTE
+        # la taille du robot. A 0,20 m, MPPI croyait piloter un disque de 20 cm
+        # alors que l'AVANT du chassis depasse de 0,40 m -- 20 cm d'avant
+        # pouvaient donc entrer dans un obstacle avant que MPPI ne voie quoi que
+        # ce soit. Ce n'est pas un frolement, c'est un choc. RPP n'a jamais eu ce
+        # defaut : il teste l'empreinte EXACTE (0,62 x 0,50 m).
+        # Le mode empreinte coute de la cadence (mesure : 1,78 Hz en essai 2).
+        # C'est le prix, et il n'y a pas de compromis honnete : reduire
+        # l'inflation ne cree pas de place, elle cache la collision.
+        consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
         trajectory_point_step: 4
@@ -423,23 +435,19 @@ local_costmap:
         # Consequence assumee : le robot gardera plus de distance aux obstacles
         # qu avec RPP. Pour eviter une personne, c est ce qu on veut ; pour
         # tondre au ras d une bordure, ce sera a rediscuter.
-        # 0,20 m ET NON 0,42 : MESURE le 04/09/2026, capture RViz a l appui.
-        # A 0,42 (rayon circonscrit, ce que reclame la bibliotheque) le robot
-        # etait EMMURE dans ce salon : 44 % de la costmap locale bloquante,
-        # 25 % seulement libre, et le plus grand disque a cout nul autour de
-        # lui ne faisait que 0,32 m de rayon -- pour un robot qui a besoin d un
-        # anneau de 0,485 m. Ni MPPI ni RPP ne peuvent manoeuvrer la-dedans.
-        # 0,20 m est SOUS le rayon inscrit (0,23), donc la bande bloquante
-        # autour de chaque obstacle tombe a 0,20 m au lieu de 0,23.
-        # MARGE REDUITE, ASSUMEE, POUR ESSAI EN INTERIEUR. Le robot est alors
-        # represente pour MPPI par un disque de 0,20 m, plus petit que sa
-        # realite (0,62 x 0,50 m) : il peut froler un coin avec son avant, qui
-        # depasse de 0,40 m. CE QUI RATTRAPE : le collision_monitor, lui,
-        # travaille sur l EMPREINTE EXACTE publiee, et coupe /cmd_vel 1,5 s
-        # avant contact. C est la derniere ligne de defense, et elle est juste.
-        # DEHORS, remonter a 0,42 : la place ne manque plus et la marge
-        # geometrique redevient gratuite.
-        inflation_radius: 0.20
+        # 0,05 m, COMME LE FICHIER RPP, et pour la meme raison : la securite
+        # est portee par le controle d'EMPREINTE (consider_footprint: true
+        # ci-dessus), pas par l'inflation. Une inflation superieure au rayon
+        # inscrit compterait la taille du robot DEUX FOIS et refermerait les
+        # passages -- c'est le "ca bloque pour rien" documente pour robot A, et
+        # c'est aussi ce qui a EMMURE ce robot quand j'avais mis 0,42
+        # (44 % de costmap bloquante, disque libre reduit a 0,32 m de rayon).
+        # La bibliotheque avertira qu'elle ne peut pas accelerer le controle
+        # d'empreinte faute de champ de cout : c'est attendu, et c'est le prix
+        # de la justesse. Ne pas "corriger" cet avertissement en montant
+        # l'inflation sans repasser consider_footprint a false -- et ne pas
+        # repasser consider_footprint a false, voir juste au-dessus.
+        inflation_radius: 0.05
         cost_scaling_factor: 3.0
       always_send_full_costmap: True
 
