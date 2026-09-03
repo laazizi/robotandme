@@ -105,6 +105,19 @@ géométrie du firmware ; le test hôte `kin_ackermann/test/run.sh` échoue si l
 fichier est périmé). Sans ce fichier, le lancement est **refusé** plutôt que de
 naviguer avec un rayon inventé.
 
+## Avant de déployer une config à la main
+
+```bash
+robot/bin/check_config.py            # valide tout robot/config/
+robot/bin/check_config.py fichier…   # ou seulement ceux-là
+```
+
+Sort en erreur si un YAML ou un XML est invalide. Il attrape en particulier le
+**double tiret dans un commentaire XML**, qui rend le fichier illisible : cette
+erreur a été commise **cinq fois** sur ce projet, et la dernière a envoyé un
+arbre de comportement cassé sur le robot. `install.sh` valide déjà à
+l'installation ; ce script sert **avant**, pour les copies ciblées.
+
 ## ⚠️ USB et udev — le point sensible
 
 L'**ESP32 (DevKitC)** et les **lidars N10 / LD14** utilisent la même puce

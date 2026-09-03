@@ -81,9 +81,14 @@
                  sur le seuil de frottement de ces moteurs, documente dans
                  config/speeds.env (ils ne demarrent pas sous 0,13 m/s, les
                  roues bourdonnent sans entrainer le chassis).
-                 0,25 m/s est franchement au-dessus du seuil et reste sous la
-                 vitesse de croisiere de 0,30. -->
-            <BackUp backup_dist="0.30" backup_speed="0.25" time_allowance="20" error_code_id="{backup_code_id}"/>
+                 Porte a 0,30 m/s le 04/09/2026 sur demande : c'est le PLAFOND
+                 REEL, impose par velocity_smoother min_velocity = -0,30. Au-dela
+                 la consigne serait silencieusement rabotee, sans erreur ni
+                 message — il faudrait d'abord relever ACKERBOT_MIN_VEL_X.
+                 Distance portee de 0,30 a 0,40 m : dix centimetres de degagement
+                 en plus pour 0,1 s de recul supplementaire, ce qui augmente les
+                 chances de liberer vraiment le robot du premier coup. -->
+            <BackUp backup_dist="0.40" backup_speed="0.30" time_allowance="20" error_code_id="{backup_code_id}"/>
             <Sequence name="ClearingActions">
               <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
