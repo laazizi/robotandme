@@ -154,6 +154,17 @@
 // (s_delta), SERVO_INVERT n'agit que sur l'impulsion envoyee au servo. Le
 // modele et le materiel se retrouvent donc d'accord, au lieu d'etre opposes.
 #define SERVO_INVERT         1       // 1 si braquer a gauche tourne les roues a droite
+// ZONE MORTE du servo : en deca de cet ecart, on ne bouge pas la roue.
+// Utilisateur du 04/09/2026 : "il fait encore des petits coups de servomoteur".
+// Cause : a basse vitesse la formule AMPLIFIE. delta = atan(w x_s / v), donc une
+// rotation de 0,05 rad/s vaut 3 deg a 0,30 m/s mais 20 deg a 0,05 m/s -- le
+// moindre fremissement de MPPI devient un mouvement visible, et un servo RC qui
+// corrige sans cesse s'use et chauffe.
+// 0,02 rad = 1,1 deg = 13 us d'impulsion : sous le jeu mecanique d'une
+// timonerie et sous ce qu'un servo de loisir sait reproduire, donc RIEN n'est
+// perdu en precision. L'angle memorise (steering_get) ne bouge pas non plus,
+// si bien que l'odometrie reste d'accord avec la position reelle de la roue.
+#define SERVO_DEADBAND_RAD   0.02f
 
 // ------------------------------------------------------------
 // Traction et regulation. Gains de mowbot 12 V, A REGLER ICI.

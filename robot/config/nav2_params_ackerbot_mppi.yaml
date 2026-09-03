@@ -490,7 +490,15 @@ local_costmap:
         # preferera passer au large. Il PEUT toujours passer etroit, puisque la
         # decision de collision vient de l'empreinte exacte.
         inflation_radius: 0.42
-        cost_scaling_factor: 3.0
+        # 6.0 et NON 3.0 : le RAYON reste a 0,42 (il fait taire le flot
+        # d'erreurs et permet a la bibliotheque d'accelerer le controle
+        # d'empreinte), mais le cout DECROIT deux fois plus vite.
+        # Utilisateur du 04/09/2026 : "il se bloque dans des situations ou il
+        # peut tourner". La collision est bien decidee sur l'empreinte EXACTE,
+        # mais le COUT, lui, repoussait le robot des passages qu'il pouvait
+        # physiquement prendre. Un facteur d'echelle plus grand concentre la
+        # repulsion tout pres des obstacles au lieu de l'etaler sur 42 cm.
+        cost_scaling_factor: 6.0
       always_send_full_costmap: True
 
 global_costmap:

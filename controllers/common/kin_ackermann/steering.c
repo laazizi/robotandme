@@ -4,6 +4,9 @@
 #include "driver/ledc.h"
 #include "esp_err.h"
 
+#include <math.h>
+#include <stdbool.h>
+
 // 14 bits a 50 Hz : la periode de 20 000 us est decoupee en 16 384 pas, soit
 // 1,22 us par pas. La resolution angulaire qui en decoule, ~0,07 deg avec les
 // placeholders, est tres au-dela du jeu mecanique d'un servo RC.
@@ -17,6 +20,7 @@
 #define SERVO_CHANNEL      LEDC_CHANNEL_2
 
 static float s_delta;   // dernier angle commande [rad]
+static bool s_ecrit;    // le servo a-t-il recu au moins une impulsion ?
 
 static float clampf(float v, float lo, float hi)
 {
@@ -57,7 +61,16 @@ void steering_init(void)
 
 void steering_set(float delta_rad)
 {
-    s_delta = clampf(delta_rad, -STEER_MAX_RAD, STEER_MAX_RAD);
+    const float cible = clampf(delta_rad, -STEER_MAX_RAD, STEER_MAX_RAD);
+    // ZONE MORTE : on ignore les variations plus petites que SERVO_DEADBAND_RAD.
+    // Sans elle, le servo corrige en permanence pour du bruit de commande (voir
+    // robot.h). Le premier appel passe toujours, sinon le servo ne serait
+    // jamais initialise a l'allumage.
+    if (s_ecrit && fabsf(cible - s_delta) < SERVO_DEADBAND_RAD) {
+        return;
+    }
+    s_delta = cible;
+    s_ecrit = true;
     float d = SERVO_INVERT ? -s_delta : s_delta;
     servo_write_us(SERVO_CENTER_US + (int)(d * SERVO_US_PER_RAD));
 }
