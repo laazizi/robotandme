@@ -80,6 +80,23 @@ for f in "$SRC"/launch/*.launch.py; do
 done
 cp -r "$SRC/launch/." "$DEST/launch/" 2>/dev/null || true
 cp -r "$SRC/www/." "$DEST/www/" 2>/dev/null || true
+# docker/ : SEULEMENT en mode conteneur, et c'est indispensable --
+# run_container.sh cherche l'image mowbot:jazzy et, si elle manque, renvoie
+# vers ~/mowbot/docker/Dockerfile.jazzy pour la construire. Sans cette copie
+# le chemin indique n'existe pas : constate sur une installation neuve
+# (xavier-01, 04/09/2026). Le Dockerfile est A LA RACINE du depot et non
+# dans robot/, d'ou le ".." -- si le dossier n'a pas ete transfere, on le
+# dit au lieu d'echouer plus tard.
+if [ "$CONTAINER" = "1" ]; then
+  if [ -d "$SRC/../docker" ]; then
+    mkdir -p "$DEST/docker"
+    cp -r "$SRC/../docker/." "$DEST/docker/"
+    echo "   docker/ copie ($(ls "$DEST/docker" | wc -l) fichier(s))"
+  else
+    echo "   ATTENTION : docker/ absent de la source, image non constructible" >&2
+    echo "              transferer AUSSI le dossier docker/ du depot" >&2
+  fi
+fi
 # configs : ne pas ecraser un reglage local existant (sauvegarde si different).
 # __HOME__ / __USER__ sont substitues : les YAML n'acceptent pas de variable
 # d'environnement, et un chemin en dur casse des qu'on change de SBC.
