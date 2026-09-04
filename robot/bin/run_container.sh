@@ -26,6 +26,20 @@ docker image inspect "$IMAGE" >/dev/null 2>&1 || {
 # l'agent ne demarrait JAMAIS, donc ni /odom ni IMU, donc plus de navigation.
 docker rm -f "$NOM" >/dev/null 2>&1
 
+# Le workspace du driver lidar N10 (~/lidar_ws) est monte S'IL EXISTE. Le
+# binaire compile y vit, et run_lidar.sh le cherche a ce meme chemin DEPUIS LE
+# CONTENEUR : sans ce montage il est introuvable, le service boucle en echec
+# ("ERREUR : driver N10 absent") et le robot n'a pas de /scan.
+# Pourquoi ce trou est reste invisible si longtemps : la Xavier NX tournait avec
+# un LD14, dont le driver est un noeud Python livre dans mowbot/nodes -- il n'a
+# besoin d'aucun workspace. Le chemin N10 n'avait donc jamais servi en conteneur.
+MONTAGE_LIDAR=()
+LIDAR_WS="${MOWBOT_LIDAR_WS_HOTE:-$HOME/lidar_ws}"
+if [ -d "$LIDAR_WS" ]; then
+  MONTAGE_LIDAR=(-v "$LIDAR_WS:$LIDAR_WS")
+  mowbot_log "workspace lidar monte : $LIDAR_WS"
+fi
+
 mowbot_log "demarrage du conteneur $NOM ($IMAGE)"
 exec docker run --rm --name "$NOM" \
   `# --init place tini en PID 1 a la place de la commande du conteneur.` \
@@ -51,6 +65,7 @@ exec docker run --rm --name "$NOM" \
   `# et rien n'a besoin d'etre adapte.` \
   -v "$MOWBOT_HOME:$MOWBOT_HOME" \
   -v /tmp/mowbot:/tmp/mowbot \
+  "${MONTAGE_LIDAR[@]}" \
   -e "HOME=$HOME" \
   -e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}" \
   "$IMAGE"
