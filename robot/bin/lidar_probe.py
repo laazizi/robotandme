@@ -75,6 +75,35 @@ def count_ld_frames(raw):
     return n
 
 
+def count_n10_frames(raw):
+    """Trames LSLidar N10 : en-tete 0xA5 0x5A a PAS CONSTANT.
+
+    Mesure sur un N10 reel (Orin Nano, 5 septembre 2026) : 848 en-tetes en 3 s,
+    espaces de 58 octets, 847 ecarts sur 847 identiques. Soit ~283 trames/s,
+    c'est-a-dire 450 points par tour a 10 Hz -- ce qu'annonce la fiche du N10.
+
+    POURQUOI CE TEST EXISTE. Le verdict n10 reposait sur le SEUL volume a
+    230400 bauds, et se trompait dans les deux sens : l'IMU Razor, lue au
+    mauvais debit, rendait assez d'octets pour etre declaree n10 ; et le vrai
+    N10, lui, etait etiquete ESP32 par detect_devices.sh. Un volume ne dit rien,
+    un pas constant si.
+    """
+    pos = [i for i in range(len(raw) - 1)
+           if raw[i] == 0xA5 and raw[i + 1] == 0x5A]
+    if len(pos) < 20:
+        return 0
+    ecarts = {}
+    for a, b in zip(pos, pos[1:]):
+        d = b - a
+        if 8 <= d <= 512:
+            ecarts[d] = ecarts.get(d, 0) + 1
+    if not ecarts:
+        return 0
+    dominant = max(ecarts.values())
+    # au moins 80 % des ecarts identiques : un flux de trames, pas du hasard
+    return dominant if dominant >= 0.8 * (len(pos) - 1) else 0
+
+
 def looks_microros(raw):
     """Trames micro-ROS (XRCE-DDS serie) : delimiteur 0x7E a PAS REGULIER.
 
@@ -113,6 +142,13 @@ def main():
     if count_ld_frames(raw) >= 5:
         print('ld06')       # meme protocole, vitesse doublee
         return 0
+
+    # N10 AVANT micro-ROS et avant le seuil de volume : sa signature est
+    # formelle, alors que les deux tests suivants sont des heuristiques. Sans
+    # cela detect_devices.sh voyait un ESP32 la ou il y avait un lidar.
+    if count_n10_frames(raw):
+        print('n10')
+        return 0
     # AVANT le seuil de volume : un ESP32 en micro-ROS debite lui aussi
     # beaucoup, et le declarer lidar coupait toute la chaine (voir l'en-tete).
     # On teste aux deux vitesses : le firmware tourne a 460800, pas a 230400.
@@ -120,10 +156,12 @@ def main():
         print('microros')
         return 1
 
-    if len(raw) > 2000:     # debite beaucoup sans signature LD -> N10
-        print('n10')
-        return 0
-
+    # PLUS DE VERDICT AU VOLUME. Il disait "n10" des que le port rendait
+    # 2000 octets sans signature LD, et se trompait dans les deux sens : l'IMU
+    # Razor (ASCII a 57600) lue a 230400 rend ~4000 octets de charabia et
+    # partait pour un lidar, tandis que le vrai N10 finissait etiquete ESP32.
+    # Les trois modeles ont desormais une signature formelle ; sans signature,
+    # on dit qu'on ne sait pas, ce qui est la reponse honnete.
     print('inconnu')
     return 1
 
