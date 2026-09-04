@@ -50,12 +50,21 @@ ROS_D=""
 for d in jazzy humble iron rolling; do
   [ -f "/opt/ros/$d/setup.bash" ] && ROS_D="$d" && break
 done
-if [ -z "$ROS_D" ] && [ "$CONTAINER" = "1" ]; then
-  # Normal en mode conteneur : l'hote n'a PAS de ROS, c'est tout l'objet de la
-  # manoeuvre. La distro est celle de l'image, et les YAML doivent etre
-  # substitues pour elle.
+if [ "$CONTAINER" = "1" ]; then
+  # EN MODE CONTENEUR LA DISTRO EST CELLE DE L'IMAGE, JAMAIS CELLE DE L'HOTE.
+  # Le test portait avant sur "aucun ROS sur l'hote", ce qui marchait tant que
+  # l'hote n'en avait pas (Xavier NX). Sur un hote qui a ROS installe -- une
+  # Orin Nano livree avec Humble -- la detection l'emportait et les YAML
+  # partaient reecrits en syntaxe Humble (greffons "::"" -> "/") DANS un
+  # conteneur Jazzy, qui attend "::". nav2 refusait alors de se configurer, et
+  # rien dans la sortie de ce script ne l'annoncait.
+  HOTE_D="$ROS_D"
   ROS_D="${MOWBOT_ROS_DISTRO:-jazzy}"
-  echo ">> aucun ROS sur l'hote : normal en mode conteneur, on cible $ROS_D"
+  if [ -n "$HOTE_D" ]; then
+    echo ">> mode conteneur : l'hote porte ROS $HOTE_D, on l'IGNORE et on cible $ROS_D (celle de l'image)"
+  else
+    echo ">> aucun ROS sur l'hote : normal en mode conteneur, on cible $ROS_D"
+  fi
 elif [ -z "$ROS_D" ]; then
   echo "ERREUR : aucune distro ROS 2 dans /opt/ros — installer ros-<distro>-ros-base," >&2
   echo "         ou passer --container si la pile doit tourner dans un conteneur." >&2
@@ -415,10 +424,20 @@ mkdir -p "$HOME/.local/bin"
 ln -sf "$DEST/bin/mowbot" "$HOME/.local/bin/mowbot"
 grep -q 'mowbot/bin' "$HOME/.bashrc" 2>/dev/null || \
   echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-grep -q "ros/$ROS_D/setup.bash" "$HOME/.bashrc" 2>/dev/null || {
-  echo "source /opt/ros/$ROS_D/setup.bash" >> "$HOME/.bashrc"
+# Le source ROS ne vaut que pour un ROS present SUR L'HOTE. En mode conteneur
+# la distro ciblee est celle de l'image : ecrire son chemin dans le .bashrc de
+# l'hote produirait une erreur a chaque ouverture de session, le repertoire
+# n'existant pas. On prend alors celle de l'hote s'il en a une, sinon rien.
+SRC_D="$ROS_D"
+[ "$CONTAINER" = "1" ] && SRC_D="$HOTE_D"
+if [ -n "$SRC_D" ] && [ -f "/opt/ros/$SRC_D/setup.bash" ]; then
+  grep -q "ros/$SRC_D/setup.bash" "$HOME/.bashrc" 2>/dev/null || {
+    echo "source /opt/ros/$SRC_D/setup.bash" >> "$HOME/.bashrc"
+    echo "export ROS_DOMAIN_ID=0" >> "$HOME/.bashrc"
+  }
+fi
+grep -q "ROS_DOMAIN_ID" "$HOME/.bashrc" 2>/dev/null || \
   echo "export ROS_DOMAIN_ID=0" >> "$HOME/.bashrc"
-}
 
 echo
 echo "=============================================================="
