@@ -22,6 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-tf2-tools \
       ros-jazzy-teleop-twist-joy \
       ros-jazzy-rosbridge-suite \
+      `# --- driver du lidar LSLidar N10 (~/lidar_ws, compile DANS cette image) ---` \
+      `# Ces trois-la manquaient : l'image du depot faisait 0,92 Go quand celle` \
+      `# de la Xavier NX en faisait 3,48. L'ecart, c'etait PCL et libpcap,` \
+      `# installes un jour a la main dans le conteneur et jamais reportes ici.` \
+      `# Resultat : sur un SBC neuf le driver N10 ne compilait pas, et le` \
+      `# binaire de la NX etait lie a Humble donc inutilisable sous Jazzy.` \
+      `# package.xml de lslidar_driver demande : libpcap, libpcl-all,` \
+      `# pcl_conversions, diagnostic_updater, pluginlib (les deux derniers sont` \
+      `# deja dans ros-base). pubPointCloud2 est a false dans lidar_n10.yaml,` \
+      `# mais les en-tetes PCL restent necessaires A LA COMPILATION.` \
+      ros-jazzy-pcl-conversions \
+      libpcl-dev \
+      libpcap-dev \
       python3-serial \
       python3-numpy \
       python3-yaml \
