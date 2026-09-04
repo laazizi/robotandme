@@ -21,6 +21,7 @@ case "${1:-help}" in
   restart)     shift; for s in "$@"; do sudo systemctl restart "mowbot-$s"; done ;;
   stop-all)    sudo systemctl stop mowbot-nav mowbot-agent mowbot-lidar mowbot-razor \
                  mowbot-ekf mowbot-tf mowbot-description mowbot-rosbridge mowbot-web ;;
+  waypoints)   shift; bash "$BIN/run_node.sh" waypoints.py "$@" ;;
   node)        shift; bash "$BIN/run_node.sh" "$@" ;;
   *)
     cat <<'H'
@@ -41,6 +42,9 @@ mowbot — commandes du robot
   mowbot detect        identifier les USB et ecrire les regles udev (sudo)
   mowbot devices       idem, sans rien ecrire (diagnostic)
   mowbot self-check    secteurs ou le lidar se voit lui-meme
+
+  mowbot waypoints     parcours de points en boucle (defaut : carre de 1 m)
+                       ex : mowbot waypoints config/waypoints_exemple.txt --tours 3
 
   mowbot node X.py     lancer un noeud/outil (motion_test.py, calib_1m.py...)
   mowbot logs [svc]    suivre les logs (defaut : nav)

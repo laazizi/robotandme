@@ -1,0 +1,19 @@
+# Points de passage pour  mowbot waypoints config/waypoints_exemple.txt
+#
+# Une ligne par point :   x  y  [cap_en_degres]
+#   x, y : metres dans le repere `map` (l'origine est la ou le SLAM a demarre)
+#   cap  : orientation VOULUE en arrivant, en degres. Facultatif (0 par defaut).
+#          0 = vers +x, 90 = vers +y, 180 = vers -x, -90 = vers -y.
+#
+# Le parcours boucle indefiniment : le dernier point enchaine sur le premier.
+# Faire donc en sorte que le retour du dernier au premier soit franchissable.
+#
+# CONSEIL : commencer petit. Un carre de 1 m suffit a voir si l'odometrie
+# derive (le robot revient-il au meme endroit apres dix tours ?) et si les
+# rotations sont justes. C'est exactement le parcours utilise sans argument :
+#   mowbot waypoints
+
+1.0   0.0     0
+1.0   1.0    90
+0.0   1.0   180
+0.0   0.0   -90
