@@ -1,0 +1,117 @@
+<?xml version="1.0"?>
+<!-- GROS ROBOT TONDEUSE — modele pour RViz et pour la chaine TF.
+
+     Ecrit le 5 septembre 2026 sur les cotes donnees par l'utilisateur et les
+     mesures du banc. NE PAS confondre avec mowbot.urdf, qui decrit le TRICYCLE
+     ackerbot : voie 0,44 m, roues de 7,5 cm, bras de direction. Jusqu'ici RViz
+     affichait ce modele-la sur ce robot, ce qui n'avait aucun sens.
+
+     CONVENTION : base_link est AU SOL, a l'aplomb du centre de l'essieu moteur.
+     C'est ce qui rend coherent le lidar a z = 0,28 m tout en restant SOUS le
+     sommet des roues, a 0,40 m — c'est precisement pourquoi le faisceau coupe
+     les roues, et pourquoi scan_fix.py masque les secteurs 61-119 et 241-299.
+
+     COTES :
+       entraxe des roues motrices   0,82 m   (0,90 hors-tout moins 0,08 de roue)
+       roue                         rayon 0,200 m, largeur 0,08 m
+       roue folle                   0,95 m DEVANT l'essieu
+       lidar                        au CENTRE de l'essieu, 0,28 m de haut
+       empreinte nav2               [-0,20 ; +0,95] x [-0,45 ; +0,45]
+
+     L'AVANT EST LE COTE DE LA ROUE FOLLE (+x). C'est le choix retenu pour
+     l'empreinte, et il prepare la suite : cette roue deviendra directrice, et
+     un tricycle se conduit roue directrice en tete. A CONFIRMER AU BANC —
+     envoyer linear.x positif doit pousser le robot vers la roue folle. Sur le
+     petit tricycle, s'etre trompe sur ce point a coute une soiree entiere.
+-->
+<robot name="gros">
+
+  <material name="gris">   <color rgba="0.55 0.55 0.58 1.0"/></material>
+  <material name="noir">   <color rgba="0.15 0.15 0.15 1.0"/></material>
+  <material name="rouge">  <color rgba="0.80 0.15 0.15 1.0"/></material>
+  <material name="bleu">   <color rgba="0.20 0.40 0.85 1.0"/></material>
+
+  <link name="base_link"/>
+
+  <!-- Chassis : la boite qui porte l'empreinte de nav2, au centimetre pres.
+       Longueur 1,15 m de -0,20 a +0,95, largeur 0,90, posee a 0,12 m du sol. -->
+  <link name="chassis">
+    <visual>
+      <geometry><box size="1.15 0.90 0.16"/></geometry>
+      <origin xyz="0.375 0 0" rpy="0 0 0"/>
+      <material name="gris"/>
+    </visual>
+  </link>
+  <joint name="base_to_chassis" type="fixed">
+    <parent link="base_link"/><child link="chassis"/>
+    <origin xyz="0 0 0.24" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Repere visuel de l'AVANT : du cote de la roue folle. -->
+  <link name="avant">
+    <visual>
+      <geometry><box size="0.10 0.30 0.04"/></geometry>
+      <material name="rouge"/>
+    </visual>
+  </link>
+  <joint name="chassis_to_avant" type="fixed">
+    <parent link="base_link"/><child link="avant"/>
+    <origin xyz="0.90 0 0.34" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Roues motrices : rayon 0,200 m, largeur 0,08 m, a +/-0,41 m. -->
+  <link name="wheel_left">
+    <visual>
+      <geometry><cylinder radius="0.200" length="0.08"/></geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_left" type="fixed">
+    <parent link="base_link"/><child link="wheel_left"/>
+    <origin xyz="0 0.41 0.200" rpy="0 0 0"/>
+  </joint>
+
+  <link name="wheel_right">
+    <visual>
+      <geometry><cylinder radius="0.200" length="0.08"/></geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="base_to_wheel_right" type="fixed">
+    <parent link="base_link"/><child link="wheel_right"/>
+    <origin xyz="0 -0.41 0.200" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Roue FOLLE, 0,95 m devant l'essieu. Rayon choisi pour que le chassis
+       reste horizontal : meme hauteur d'axe qu'une roue de 0,10 m. -->
+  <link name="roue_folle">
+    <visual>
+      <geometry><cylinder radius="0.100" length="0.05"/></geometry>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <material name="noir"/>
+    </visual>
+  </link>
+  <joint name="base_to_roue_folle" type="fixed">
+    <parent link="base_link"/><child link="roue_folle"/>
+    <origin xyz="0.95 0 0.100" rpy="0 0 0"/>
+  </joint>
+
+  <!-- LIDAR au centre exact de l'essieu, 0,28 m au-dessus du sol.
+       Il est SOUS le sommet des roues (0,40 m) : son faisceau les coupe, d'ou
+       le masquage dans scan_fix.py. Remonter ce lidar au-dessus de 0,40 m
+       supprimerait le besoin de masquer quoi que ce soit. -->
+
+  <!-- IMU : centrale Razor, sur le chassis. -->
+
+  <!-- NI laser_link NI imu_link ICI, VOLONTAIREMENT.
+       run_tf.sh les publie deja comme TF statiques. Les declarer aussi dans
+       l'URDF donnerait DEUX publieurs pour la meme transformee : c'est
+       exactement le defaut que l'en-tete de run_tf.sh signale comme ayant fait
+       rejeter TOUS les scans par le SLAM. Un seul endroit par transformee.
+       Pour memoire, ce que run_tf.sh publie pour ce robot :
+         base_link -> laser_link  a x=0, z=0,28  (lidar au centre de l'essieu)
+         base_link -> imu_link
+  -->
+</robot>
