@@ -91,6 +91,11 @@ ROBOT="$(printf '%s' "${ROBOT:-b}" | tr 'A-Z' 'a-z')"
 if [ "$ROBOT" = "ackerbot" ]; then
   . "$MOWBOT_BIN/nav_profile_ackerbot.sh" || { mowbot_log "profil ackerbot refuse, arret"; exit 1; }
   SPEEDS=""   # le bloc A/B ci-dessous est neutralise pour ce robot
+elif [ "$ROBOT" = "gros" ]; then
+  # GROS ROBOT : diffdrive sur UBOX dual VESC. Meme raison d'etre que le profil
+  # ackerbot -- un fichier a part, pour ne pas toucher au bloc A/B valide au sol.
+  . "$MOWBOT_BIN/nav_profile_gros.sh" || { mowbot_log "profil gros refuse, arret"; exit 1; }
+  SPEEDS=""
 else
 PARAMS="$MOWBOT_CONFIG/nav2_params.yaml"
 SPEEDS="$MOWBOT_CONFIG/speeds.env"
