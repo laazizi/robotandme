@@ -59,10 +59,18 @@ SECTEURS_PAR_ROBOT = {
     # a plus de 55 cm restent vus, ce qui est l'essentiel pour naviguer.
     # LA VRAIE SOLUTION serait de REMONTER LE LIDAR au-dessus de 0,40 m, la
     # hauteur du sommet des roues : plus aucun masquage ne serait necessaire.
-    'gros': [
-        ( 61.0, 119.0, 0.55),   # roue motrice GAUCHE
-        (241.0, 299.0, 0.55),   # roue motrice DROITE
-    ],
+    # AUCUN SECTEUR MASQUE, et c'est une CORRECTION.
+    # J'avais masque 61-119 et 241-299 en croyant le faisceau coupe par les
+    # roues -- calcul fait pour un lidar a 0,28 m alors que l'axe des roues est
+    # a 0,20 et leur sommet a 0,40. MESURE ENSUITE SUR LE ROBOT : sur 25 tours,
+    # ZERO direction presente un echo permanent entre 0,20 et 0,70 m. Le lidar
+    # est donc AU-DESSUS du sommet des roues et ne les voit pas.
+    # Ce masquage etait donc nuisible : il effacait les echos a moins de 55 cm
+    # sur 116 degres -- un tiers du tour -- et un obstacle reel a 40 cm sur le
+    # cote aurait disparu de la carte sans laisser de trace.
+    # Si un jour le lidar descend sous 0,40 m, remesurer AVANT de masquer :
+    # nodes/detect_self.py releve les directions a echo constant.
+    'gros': [],
 }
 
 _robot = os.environ.get('MOWBOT_ROBOT', '').strip().lower()
