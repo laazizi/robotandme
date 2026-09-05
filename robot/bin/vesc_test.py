@@ -400,12 +400,30 @@ def mode_tour(v, duty, second, rayon, voie, ticks_encodeur):
         print("  Relancer et appuyer sur ENTREE a chaque tour complet.")
         return 1
     print("  tours marques a : %s" % ", ".join(str(x) for x in tours))
-    n = tours[-1] / float(len(tours))
-    if len(tours) > 1:
-        ecarts = [b - a for a, b in zip(tours, tours[1:])]
-        print("  pas par tour, tour par tour : %s" % ", ".join(str(e) for e in ecarts))
-        disp = (max(ecarts) - min(ecarts)) / float(n) * 100 if ecarts else 0
+    # LE PREMIER TOUR EST ECARTE quand on en a d'autres. Mesure du 5 septembre
+    # 2026 : marques a 372, 763, 1154 -> premier tour 372 pas, les suivants 391
+    # et 391. Les 5 % manquants sont des commutations RATEES au demarrage, le
+    # FOC sans capteur ne suivant pas le rotor tant que la roue n'est pas
+    # lancee. Diviser le total par le nombre de tours melangeait ce tour degrade
+    # aux bons et sous-estimait la resolution -- c'etait faux.
+    ecarts = [b - a for a, b in zip(tours, tours[1:])]
+    if ecarts:
+        n = sum(ecarts) / float(len(ecarts))
+        print("  pas par tour, d'une marque a la suivante : %s"
+              % ", ".join(str(e) for e in ecarts))
+        disp = (max(ecarts) - min(ecarts)) / n * 100
         print("  dispersion entre tours : %.1f %%" % disp)
+        manque = (n - tours[0]) / n * 100
+        print("  premier tour : %d pas, soit %+.1f %% par rapport au regime etabli"
+              % (tours[0], -manque))
+        if manque > 2:
+            print("           -> pas perdus au demarrage : le FOC sans capteur ne suit")
+            print("              pas le rotor tant que la roue n'est pas lancee.")
+        print("  (premier tour ECARTE du calcul)")
+    else:
+        n = float(tours[0])
+        print("  un seul tour marque : le demarrage est INCLUS, valeur sous-estimee.")
+        print("  Refaire avec au moins deux tours pour une mesure propre.")
 
     circ = 2 * math.pi * rayon
     print()
