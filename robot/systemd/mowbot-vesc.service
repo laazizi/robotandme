@@ -1,0 +1,25 @@
+[Unit]
+Description=mowbot pilote des roues (UBOX dual VESC) -> /odom
+# __USER__ / __HOME__ sont remplaces par install.sh
+#
+# SANS CE SERVICE le robot n'a ni odometrie ni roues : l'EKF n'a rien a
+# fusionner, la TF odom->base_link n'existe pas, le SLAM ne publie pas map->odom
+# et nav2 attend en silence une odometrie qui ne viendra jamais. Le profil
+# nav_profile_gros.sh avertit quand il ne tourne pas.
+After=network-online.target mowbot-container.service
+Wants=network-online.target
+Requires=mowbot-container.service
+
+[Service]
+Type=simple
+User=__USER__
+Environment=HOME=__HOME__
+ExecStartPre=/bin/sleep 12
+ExecStart=/bin/bash __HOME__/mowbot/bin/run_vesc.sh
+# Restart=always : un hoquet USB ne doit pas laisser le robot sans pilote. Le
+# noeud sait deja rouvrir son port, ceci est la seconde barriere.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

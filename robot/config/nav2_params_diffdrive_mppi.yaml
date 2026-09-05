@@ -255,18 +255,28 @@ controller_server:
       # AckermannConstraints RETIRE : il imposait un rayon de braquage minimal.
       # En diffdrive le rayon minimal est ZERO, le robot pivote sur place.
       # ---- enveloppe de vitesse (injectee par le profil) ----
-      vx_max: 0.60
+      # 0,15 m/s = 0,54 km/h. LE ROBOT PESE ~70 kg ET EVOLUE EN APPARTEMENT
+      # (utilisateur, 5 septembre 2026). Demander plus serait doublement faux :
+      # dangereux dans un couloir, et irrealisable -- mesure au banc, le robot
+      # plafonne a 0,16 m/s avec duty_max 0,07, et a 0,37 m/s meme en mode
+      # regime sans bridage. Un controleur qui planifie des vitesses que le
+      # robot ne produit pas croit en permanence etre en retard sur son plan.
+      vx_max: 0.15
       # MARCHE ARRIERE BRIDEE, pas interdite : -0.15 m/s, moitie de l avant.
       # Exigence utilisateur : reculer sert a MANOEUVRER, pas a se deplacer.
       # L equivalent MPPI du reverse_penalty de Smac est PreferForwardCritic,
       # dont le poids est monte a 20 (defaut 5) plus bas.
-      vx_min: -0.30
+      # marche arriere plus lente encore : on recule vers une zone que le lidar
+      # couvre moins bien, et l'arriere du chassis deborde de 20 cm.
+      vx_min: -0.10
       vy_max: 0.0
       # 0.83 rad/s = v_max / R_min : la rotation coherente avec le rayon.
       # w_max = 2 x vx_max / voie = 2 x 0,60 / 0,82 = 1,46 rad/s au maximum
       # theorique. On reste bien en dessous : une rotation sur place fait
       # balayer 0,95 m de rayon a la roue folle, autant ne pas la faire vite.
-      wz_max: 0.80
+      # 0,40 rad/s : a cette vitesse la roue folle, a 0,95 m de l'axe, balaye
+      # 0,38 m/s. C'est elle qui limite, pas les roues motrices.
+      wz_max: 0.40
       ax_max: 0.8
       ax_min: -1.2
       az_max: 2.0
@@ -682,7 +692,9 @@ behavior_server:
     transform_tolerance: 1.0
     # 0,50 rad/s : un diffdrive se degage en pivotant, autant que ce soit
     # efficace. A 0,50 rad/s la roue folle file a 0,21 m/s -- doux.
-    max_rotational_vel: 0.50
+    # 0,30 rad/s pour les comportements de degagement : meme raisonnement que
+    # wz_max, l'avant du robot balaye large.
+    max_rotational_vel: 0.30
     min_rotational_vel: 0.05
     rotational_acc_lim: 2.0
 
