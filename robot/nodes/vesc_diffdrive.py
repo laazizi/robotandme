@@ -75,7 +75,13 @@ class Lien:
     """Acces serie au couple de VESC. Un seul fil ecrit, protege par un verrou."""
 
     def __init__(self, port, id_can):
-        self.s = serial.Serial(port, 115200, timeout=0.2)
+        # DELAI D'ATTENTE COURT, ET C'EST DELIBERE. Avec timeout=0.2 chaque
+        # read() bloquait les 0,2 s entieres faute d'avoir ses 256 octets, alors
+        # que le VESC repond en quelques millisecondes. Deux roues par cycle
+        # faisaient 0,4 s, et /odom tombait a 2,5 Hz -- MESURE -- quand l'EKF en
+        # attend 10. Avec 0,02 s la boucle de _lire() rend la main des que le
+        # paquet est decode, l'echeance globale restant tenue par `delai`.
+        self.s = serial.Serial(port, 115200, timeout=0.02)
         self.id_can = id_can
         self.verrou = threading.Lock()
 
@@ -89,30 +95,44 @@ class Lien:
         fin = time.time() + delai
         tampon = b''
         while time.time() < fin:
-            tampon += self.s.read(256)
+            # in_waiting quand il y a de quoi lire, sinon 1 octet : on ne
+            # bloque jamais sur une quantite qui n'arrivera pas.
+            tampon += self.s.read(self.s.in_waiting or 1)
             while tampon:
-                if tampon[0] == 2 and len(tampon) >= 2:
+                # NE JAMAIS JETER UN OCTET DE DEBUT INCOMPLET. La version
+                # precedente testait "tampon[0] == 2 AND len(tampon) >= 2" : avec
+                # une lecture qui ne rend qu'un octet, le 0x02 seul echouait sur
+                # la longueur, tombait dans la resynchronisation et etait
+                # SUPPRIME -- le reste de la trame devenait orphelin et rien ne
+                # se decodait plus. Invisible tant qu'on lisait 256 octets d'un
+                # coup, fatal des qu'on lit octet par octet. On distingue donc
+                # "trame incomplete, attendre" de "octet parasite, jeter".
+                if tampon[0] == 2:
+                    if len(tampon) < 2:
+                        break                      # attendre la longueur
                     n = tampon[1]
-                    if len(tampon) >= 2 + n + 3:
-                        charge = tampon[2:2 + n]
-                        crc = struct.unpack('>H', tampon[2 + n:4 + n])[0]
-                        tampon = tampon[2 + n + 3:]
-                        if crc == crc16(charge):
-                            return charge
-                        continue
-                    break
-                elif tampon[0] == 3 and len(tampon) >= 3:
+                    if len(tampon) < 2 + n + 3:
+                        break                      # attendre la fin de trame
+                    charge = tampon[2:2 + n]
+                    crc = struct.unpack('>H', tampon[2 + n:4 + n])[0]
+                    tampon = tampon[2 + n + 3:]
+                    if crc == crc16(charge):
+                        return charge
+                    continue
+                elif tampon[0] == 3:
+                    if len(tampon) < 3:
+                        break
                     n = struct.unpack('>H', tampon[1:3])[0]
-                    if len(tampon) >= 3 + n + 3:
-                        charge = tampon[3:3 + n]
-                        crc = struct.unpack('>H', tampon[3 + n:5 + n])[0]
-                        tampon = tampon[3 + n + 3:]
-                        if crc == crc16(charge):
-                            return charge
-                        continue
-                    break
+                    if len(tampon) < 3 + n + 3:
+                        break
+                    charge = tampon[3:3 + n]
+                    crc = struct.unpack('>H', tampon[3 + n:5 + n])[0]
+                    tampon = tampon[3 + n + 3:]
+                    if crc == crc16(charge):
+                        return charge
+                    continue
                 else:
-                    tampon = tampon[1:]
+                    tampon = tampon[1:]            # octet parasite
         return None
 
     def version(self, second=False):
@@ -232,10 +252,27 @@ class VescDiffdrive(Node):
             self.tf = TransformBroadcaster(self)
 
         self.create_timer(g('periode'), self.boucle)
+        # Surveillance de la cadence REELLE : un /odom trop lent ne se voit pas,
+        # il degrade silencieusement l'EKF et la navigation. On le DIT.
+        self.n_odom = 0
+        self.t_cadence = time.time()
+        self.create_timer(10.0, self.controler_cadence)
         self.get_logger().info(
             "pret : voie %.3f m, rayon %.4f m, %.0f pas/tour -> %.3f mm par pas, "
             "%.0f ERPM par m/s" % (self.voie, self.rayon, self.pas_tour,
                                    self.m_par_pas * 1000, self.erpm_par_ms))
+
+    def controler_cadence(self):
+        t = time.time()
+        hz = self.n_odom / max(1e-6, t - self.t_cadence)
+        self.n_odom = 0
+        self.t_cadence = t
+        if hz < 5.0:
+            self.get_logger().warning(
+                "/odom a seulement %.1f Hz : l'EKF est cale sur 10 Hz et la "
+                "navigation va en souffrir. Regarder la liaison serie." % hz)
+        else:
+            self.get_logger().info("/odom a %.1f Hz" % hz)
 
     def sur_cmd(self, m):
         self.cmd = (m.linear.x, m.angular.z)
@@ -315,6 +352,7 @@ class VescDiffdrive(Node):
         # L'EKF ne prend QUE les vitesses (cf. ekf.yaml) : la pose ci-dessus est
         # informative, elle derive avec le patinage et personne ne la fusionne.
         self.pub.publish(o)
+        self.n_odom += 1
         if self.tf:
             tr = TransformStamped()
             tr.header = o.header

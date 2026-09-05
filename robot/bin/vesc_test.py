@@ -134,30 +134,40 @@ class Vesc:
         while time.time() < fin:
             tampon += self.s.read(256)
             while tampon:
-                if tampon[0] == 2 and len(tampon) >= 2:
+                # NE JAMAIS JETER UN OCTET DE DEBUT INCOMPLET. La version
+                # precedente testait "tampon[0] == 2 AND len(tampon) >= 2" : avec
+                # une lecture qui ne rend qu'un octet, le 0x02 seul echouait sur
+                # la longueur, tombait dans la resynchronisation et etait
+                # SUPPRIME -- le reste de la trame devenait orphelin et rien ne
+                # se decodait plus. Invisible tant qu'on lisait 256 octets d'un
+                # coup, fatal des qu'on lit octet par octet. On distingue donc
+                # "trame incomplete, attendre" de "octet parasite, jeter".
+                if tampon[0] == 2:
+                    if len(tampon) < 2:
+                        break                      # attendre la longueur
                     n = tampon[1]
-                    total = 2 + n + 3
-                    if len(tampon) >= total:
-                        charge = tampon[2:2 + n]
-                        recu = struct.unpack('>H', tampon[2 + n:4 + n])[0]
-                        tampon = tampon[total:]
-                        if recu == crc16(charge):
-                            return charge
-                        continue
-                    break
-                elif tampon[0] == 3 and len(tampon) >= 3:
+                    if len(tampon) < 2 + n + 3:
+                        break                      # attendre la fin de trame
+                    charge = tampon[2:2 + n]
+                    crc = struct.unpack('>H', tampon[2 + n:4 + n])[0]
+                    tampon = tampon[2 + n + 3:]
+                    if crc == crc16(charge):
+                        return charge
+                    continue
+                elif tampon[0] == 3:
+                    if len(tampon) < 3:
+                        break
                     n = struct.unpack('>H', tampon[1:3])[0]
-                    total = 3 + n + 3
-                    if len(tampon) >= total:
-                        charge = tampon[3:3 + n]
-                        recu = struct.unpack('>H', tampon[3 + n:5 + n])[0]
-                        tampon = tampon[total:]
-                        if recu == crc16(charge):
-                            return charge
-                        continue
-                    break
+                    if len(tampon) < 3 + n + 3:
+                        break
+                    charge = tampon[3:3 + n]
+                    crc = struct.unpack('>H', tampon[3 + n:5 + n])[0]
+                    tampon = tampon[3 + n + 3:]
+                    if crc == crc16(charge):
+                        return charge
+                    continue
                 else:
-                    tampon = tampon[1:]      # resynchronisation
+                    tampon = tampon[1:]            # octet parasite
         return None
 
     def version(self, vers_second=False):
