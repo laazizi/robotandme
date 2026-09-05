@@ -34,6 +34,7 @@ rapides a venir. Rien ici ne publie sur ROS.
 """
 import argparse
 import glob
+import math
 import struct
 import sys
 import time
@@ -167,6 +168,28 @@ class Vesc:
             return None
         return (r[1], r[2])
 
+    def valeurs(self, vers_second=False):
+        """COMM_GET_VALUES. Les offsets valent pour les firmwares 6.x et 7.x ;
+        ils sont VERIFIES a l'usage par la coherence de la tension et de la
+        temperature, qui deviennent absurdes si la trame change de forme."""
+        self.s.reset_input_buffer()
+        self.envoyer(bytes([COMM_GET_VALUES]), vers_second)
+        r = self.lire_paquet(delai=0.5)
+        if not r or r[0] != COMM_GET_VALUES or len(r) < 53:
+            return None
+        d = {
+            'temp_fet': struct.unpack('>h', r[1:3])[0] / 10.0,
+            'i_mot':    struct.unpack('>i', r[5:9])[0] / 100.0,
+            'duty':     struct.unpack('>h', r[21:23])[0] / 1000.0,
+            'rpm':      struct.unpack('>i', r[23:27])[0],
+            'v_in':     struct.unpack('>h', r[27:29])[0] / 10.0,
+            'tacho':    struct.unpack('>i', r[45:49])[0],
+            'tacho_abs':struct.unpack('>i', r[49:53])[0],
+        }
+        d['coherent'] = (5.0 < d['v_in'] < 120.0 and -40 < d['temp_fet'] < 120
+                         and -1.05 < d['duty'] < 1.05)
+        return d
+
     def stop(self):
         """Rapport cyclique nul sur les deux, puis frein a zero = roue libre."""
         for second in (False, True):
@@ -295,6 +318,111 @@ def mode_clavier(v, consigne, maxi, courant):
     return 0
 
 
+def mode_tour(v, duty, second, rayon, voie, ticks_encodeur):
+    """Fait tourner UNE roue et compte les pas du tachymetre par tour complet.
+
+    L'utilisateur marque chaque tour a la touche ENTREE : c'est lui qui voit la
+    roue, pas le script. Moyenner sur plusieurs tours reduit l'erreur de repere.
+
+    Pourquoi ne pas s'arreter automatiquement : le nombre de pas par tour est
+    precisement l'inconnue qu'on cherche. On ne peut pas compter jusqu'a une
+    valeur qu'on ne connait pas.
+    """
+    import termios, tty, select
+
+    d0 = v.valeurs(second)
+    if d0 is None:
+        print("  pas de telemetrie : impossible de mesurer.")
+        return 1
+    if not d0['coherent']:
+        print("  ATTENTION : telemetrie incoherente (Vin %.1f V, Tfet %.1f C)."
+              % (d0['v_in'], d0['temp_fet']))
+        print("  La trame GET_VALUES a peut-etre change de forme sur ce firmware.")
+        return 1
+    print("  batterie %.1f V | transistors %.1f C | tachymetre de depart %d"
+          % (d0['v_in'], d0['temp_fet'], d0['tacho_abs']))
+    print()
+    print("  ROUES EN L'AIR. La roue va tourner a %.3f de rapport cyclique." % duty)
+    print("  Repere un point sur le pneu, puis :")
+    print("     ENTREE  a chaque tour complet")
+    print("     f       terminer et calculer")
+    print("     Ctrl+C  arret immediat")
+    try:
+        reponse = input("  Taper oui pour lancer : ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return 1
+    if reponse != 'oui':
+        print("  annule.")
+        return 1
+
+    reglages = termios.tcgetattr(sys.stdin)
+    tours = []
+    base = d0['tacho_abs']
+    debut = time.time()
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        while True:
+            v.envoyer(charge_duty(duty), second)
+            d = v.valeurs(second)
+            if d:
+                ecoule = d['tacho_abs'] - base
+                sys.stdout.write("\r  pas %6d | regime %5d | courant %+5.1f A | tours marques %d   "
+                                 % (ecoule, d['rpm'], d['i_mot'], len(tours)))
+                sys.stdout.flush()
+            pret, _, _ = select.select([sys.stdin], [], [], 0.05)
+            if pret:
+                c = sys.stdin.read(1)
+                if c in ('\n', '\r'):
+                    tours.append(d['tacho_abs'] - base if d else None)
+                elif c == 'f':
+                    break
+            if time.time() - debut > 180:
+                print("\n  garde-fou : 180 s ecoulees, arret.")
+                break
+    except KeyboardInterrupt:
+        print("\n  interrompu.")
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, reglages)
+        v.stop()
+
+    print("\n\n  === RESULTAT ===")
+    dfin = v.valeurs(second)
+    total = (dfin['tacho_abs'] - base) if dfin else 0
+    print("  pas comptes au total : %d" % total)
+    if total == 0:
+        print("  AUCUN pas alors que le moteur etait alimente.")
+        print("  -> soit la roue n'a pas tourne (courroie, moteur debranche),")
+        print("     soit ce VESC ne tient pas de tachymetre exploitable.")
+        return 1
+    tours = [x for x in tours if x]
+    if not tours:
+        print("  aucun tour marque : impossible de convertir en pas par tour.")
+        print("  Relancer et appuyer sur ENTREE a chaque tour complet.")
+        return 1
+    print("  tours marques a : %s" % ", ".join(str(x) for x in tours))
+    n = tours[-1] / float(len(tours))
+    if len(tours) > 1:
+        ecarts = [b - a for a, b in zip(tours, tours[1:])]
+        print("  pas par tour, tour par tour : %s" % ", ".join(str(e) for e in ecarts))
+        disp = (max(ecarts) - min(ecarts)) / float(n) * 100 if ecarts else 0
+        print("  dispersion entre tours : %.1f %%" % disp)
+
+    circ = 2 * math.pi * rayon
+    print()
+    print("  PAS PAR TOUR DE ROUE   %.1f   (moyenne sur %d tour(s))" % (n, len(tours)))
+    print("  resolution lineaire    %.2f mm par pas" % (circ / n * 1000))
+    print("  resolution de cap      %.3f deg  (un pas sur une seule roue, voie %.4f m)"
+          % (math.degrees(circ / n / voie), voie))
+    print("  paires de poles        %.1f  (pas par tour / 6, si prise directe)" % (n / 6.0))
+    print("  vs encodeurs actuels   %.0fx plus grossier (%d pas/tour, %.4f mm)"
+          % (ticks_encodeur / n, ticks_encodeur, circ / ticks_encodeur * 1000))
+    print()
+    print("  A 0,05 m/s cela fait %.1f pas par seconde, soit %.2f par cycle a 20 Hz."
+          % (0.05 / (circ / n), 0.05 / (circ / n) / 20))
+    print("  En dessous de ~1 pas par cycle, la vitesse mesuree devient du bruit.")
+    return 0
+
+
 def autotest():
     """Verifie l'encodage sans materiel : c'est la seule chose testable a sec."""
     ok = True
@@ -357,6 +485,18 @@ def main():
     p.add_argument('--list', action='store_true')
     p.add_argument('--info', action='store_true')
     p.add_argument('--autotest', action='store_true')
+    p.add_argument('--tour', action='store_true',
+                   help="mesurer les pas de tachymetre par tour de roue")
+    p.add_argument('--tour-duty', type=float, default=0.04,
+                   help="rapport cyclique pendant la mesure (defaut 0,04)")
+    p.add_argument('--roue', choices=('maitre', 'second'), default='maitre',
+                   help="quelle roue faire tourner (defaut maitre)")
+    p.add_argument('--rayon', type=float, default=0.0753,
+                   help="rayon de roue [m], defaut celui de robot.h")
+    p.add_argument('--voie', type=float, default=0.4607,
+                   help="entraxe des roues motrices [m], defaut celui de robot.h")
+    p.add_argument('--ticks-encodeur', type=float, default=2560.0,
+                   help="pas par tour des encodeurs actuels, pour la comparaison")
     a = p.parse_args()
 
     if a.autotest:
@@ -405,6 +545,15 @@ def main():
         elif a.can_id < 0:
             v.can_id = None
             print("  mode une seule roue demande (--can-id negatif)")
+        if a.tour:
+            second = (a.roue == 'second')
+            if second and v.can_id is None:
+                print("  --roue second demande mais aucun VESC sur le bus CAN.")
+                return 1
+            if abs(a.tour_duty) > a.max:
+                print("  --tour-duty %.3f depasse le plafond %.3f" % (a.tour_duty, a.max))
+                return 1
+            return mode_tour(v, a.tour_duty, second, a.rayon, a.voie, a.ticks_encodeur)
         if a.duty is not None:
             return mode_impulsion(v, a.duty, a.duree, a.courant)
         return mode_clavier(v, min(a.consigne, a.max), a.max, a.courant)
