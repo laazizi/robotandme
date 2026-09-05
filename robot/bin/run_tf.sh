@@ -4,6 +4,10 @@
 # lancees depuis les scripts capteurs elles s'empilaient a chaque redemarrage
 # -> TF concurrentes -> le SLAM rejetait tous les scans.
 source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
+# Le profil donne MOWBOT_ROBOT, dont depend la position du lidar ci-dessous.
+if [ -z "${MOWBOT_ROBOT:-}" ] && [ -f "$MOWBOT_HOME/robot_profile.env" ]; then
+  . "$MOWBOT_HOME/robot_profile.env"
+fi
 # Position du lidar. ATTENTION : elle DIFFERE selon le robot.
 #   robot 24 V (DevKitC) : 10 cm DEVANT l'axe des roues
 #   robot 12 V (P4)      : 10 cm DERRIERE  -> x NEGATIF
@@ -21,7 +25,16 @@ source "$(dirname "$(readlink -f "$0")")/mowbot_env.sh"
 # Toute modification ici doit etre reportee dans config/mowbot.urdf
 # (joint deck_to_lidar), sinon le modele dessine le lidar a un endroit et les
 # scans sortent d'un autre.
-LIDAR_X="${MOWBOT_LIDAR_X:-+0.16}"
+# GROS ROBOT : le lidar est AU CENTRE DE L'ESSIEU, donc x = 0 exactement
+# (utilisateur, 5 septembre 2026 : "le lidar est entre les roues au centre dans
+# l'axe des roues"). C'est la position la plus simple du projet -- pas de decalage
+# a compenser, et aucune des inversions de repere qui ont coute cher sur
+# l'ackerbot. Le defaut +0,16 reste celui du tricycle.
+DEFAUT_LIDAR_X="+0.16"
+case "${MOWBOT_ROBOT:-}" in
+  gros) DEFAUT_LIDAR_X="0.0" ;;
+esac
+LIDAR_X="${MOWBOT_LIDAR_X:-$DEFAUT_LIDAR_X}"
 LIDAR_Z="${MOWBOT_LIDAR_Z:-0.28}"
 # yaw : un lidar 360 deg n'a pas de champ oriente, mais son ANGLE ZERO doit
 # pointer vers l'AVANT du robot, sinon tout le costmap est tourne d'autant.

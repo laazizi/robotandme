@@ -23,6 +23,7 @@
    chaise fin (1 a 2 points a 2 m) serait efface avec le bruit.
 """
 import math
+import os
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -34,13 +35,38 @@ N = 450
 # Secteurs occultes : (angle_debut_deg, angle_fin_deg, distance_max_m).
 # Seuls les echos PLUS PROCHES que la distance indiquee sont supprimes :
 # au-dela, dans le meme secteur, ce sont de vrais obstacles -> conserves.
-SELF_SECTORS = [
-    (233.0, 250.0, 0.45),   # montant arriere-droit (~33 cm)
-    (261.0, 280.0, 0.60),   # antenne / support (~48 cm)
-    (282.0, 311.0, 0.40),   # montant arriere-gauche (~28 cm)
-    (52.0,  64.0,  0.55),   # structure avant-gauche (~49 cm, detectee ensuite)
-    (250.0, 262.0, 0.65),   # structure arriere (~60 cm, detectee ensuite)
-]
+# LES SECTEURS DEPENDENT DU ROBOT. Appliquer ceux du tricycle au gros robot
+# masquerait des directions parfaitement libres tout en laissant ses roues
+# polluer la carte. Le choix se fait sur MOWBOT_ROBOT, comme partout ailleurs.
+SECTEURS_PAR_ROBOT = {
+    # --- tricycle ackerbot : montants et antenne, releves par detect_self.py ---
+    'ackerbot': [
+        (233.0, 250.0, 0.45),   # montant arriere-droit (~33 cm)
+        (261.0, 280.0, 0.60),   # antenne / support (~48 cm)
+        (282.0, 311.0, 0.40),   # montant arriere-gauche (~28 cm)
+        (52.0,  64.0,  0.55),   # structure avant-gauche (~49 cm)
+        (250.0, 262.0, 0.65),   # structure arriere (~60 cm)
+    ],
+    # --- GROS ROBOT : ce sont ses PROPRES ROUES MOTRICES ---
+    # Le lidar est a 0,28 m et l'axe des roues a 0,20 m : le faisceau coupe donc
+    # chaque roue 8 cm au-dessus de son centre. A cette hauteur la roue (rayon
+    # 0,20 m) presente une demi-corde de sqrt(0,20^2 - 0,08^2) = 0,183 m, et
+    # elle s'etend lateralement de 0,37 a 0,45 m. Vu du lidar, place au centre
+    # exact de l'essieu, cela couvre 63,6 a 116,4 degres -- 61 a 119 avec 3
+    # degres de marge, et le symetrique a droite.
+    # Les echos attendus sont entre 0,37 et 0,49 m : le plafond a 0,55 m les
+    # supprime tous SANS aveugler le robot au-dela. Les obstacles lateraux
+    # a plus de 55 cm restent vus, ce qui est l'essentiel pour naviguer.
+    # LA VRAIE SOLUTION serait de REMONTER LE LIDAR au-dessus de 0,40 m, la
+    # hauteur du sommet des roues : plus aucun masquage ne serait necessaire.
+    'gros': [
+        ( 61.0, 119.0, 0.55),   # roue motrice GAUCHE
+        (241.0, 299.0, 0.55),   # roue motrice DROITE
+    ],
+}
+
+_robot = os.environ.get('MOWBOT_ROBOT', '').strip().lower()
+SELF_SECTORS = SECTEURS_PAR_ROBOT.get(_robot, SECTEURS_PAR_ROBOT['ackerbot'])
 
 # Filtre des points isoles (cf. point 3 du docstring).
 ISO_ENABLE = True

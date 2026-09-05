@@ -52,6 +52,7 @@ except ImportError:
 
 COMM_GET_VALUES = 4
 COMM_SET_RPM = 8
+COMM_SET_DUTY = 5
 COMM_SET_CURRENT_BRAKE = 7
 COMM_FORWARD_CAN = 34
 COMM_FW_VERSION = 0
@@ -181,6 +182,9 @@ class Lien:
         r = self._lire()
         return (r[1], r[2]) if r and r[0] == COMM_FW_VERSION and len(r) >= 3 else None
 
+    def duty(self, d, second):
+        self._envoyer(bytes([COMM_SET_DUTY]) + struct.pack('>i', int(d * 100000)), second)
+
     def regime(self, erpm, second):
         self._envoyer(bytes([COMM_SET_RPM]) + struct.pack('>i', int(erpm)), second)
 
@@ -233,6 +237,16 @@ class VescDiffdrive(Node):
         p('periode', 0.05)             # 20 Hz
         p('deadman', 0.5)              # [s], comme le firmware ESP32
         p('arret_libre', True)         # a consigne nulle : relacher, ou tenir 0 ?
+        # MODE DE COMMANDE. "regime" est le bon choix pour ROULER : le VESC
+        # asservit la vitesse et la tient dans l'herbe et les pentes. Mais en
+        # sans-capteur il ne DEMARRE pas sous ~1200 ERPM, soit 0,39 m/s mesures
+        # -- inutilisable au banc, et brutal avec des roues de 40 cm.
+        # "duty" commande un rapport cyclique : boucle OUVERTE, la vitesse varie
+        # avec la charge, mais on descend bien plus bas. Mesure comparee sur ce
+        # robot : ordre de regime 2000 -> 999 tr/min ; duty 0,08 -> 562 tr/min.
+        p('mode_commande', 'regime')   # regime | duty
+        p('duty_par_ms', 0.44)         # duty = v x ce gain (0,08 donne ~0,18 m/s)
+        p('duty_max', 0.12)            # plafond de securite en mode duty
         p('publier_tf', False)         # l'EKF publie odom->base_link, pas nous
 
         g = lambda n: self.get_parameter(n).value
@@ -244,6 +258,13 @@ class VescDiffdrive(Node):
         self.gauche_second = g('gauche_est_second')
         self.deadman = g('deadman')
         self.arret_libre = g('arret_libre')
+        self.mode = str(g('mode_commande')).lower()
+        self.duty_gain = g('duty_par_ms')
+        self.duty_max = g('duty_max')
+        if self.mode not in ('regime', 'duty'):
+            self.get_logger().warning(
+                "mode_commande='%s' inconnu, repli sur regime" % self.mode)
+            self.mode = 'regime'
         self.publier_tf = g('publier_tf')
 
         if self.voie <= 0 or self.rayon <= 0:
@@ -376,8 +397,13 @@ class VescDiffdrive(Node):
                 self.lien.frein(0.0, second)
         else:
             for roue, vit, inv in (('g', vg, self.inv[0]), ('d', vd, self.inv[1])):
-                erpm = vit * self.erpm_par_ms * (-1 if inv else 1)
-                self.lien.regime(erpm, self._second(roue == 'g'))
+                signe = -1 if inv else 1
+                if self.mode == 'duty':
+                    d = max(-self.duty_max, min(self.duty_max, vit * self.duty_gain))
+                    self.lien.duty(d * signe, self._second(roue == 'g'))
+                else:
+                    self.lien.regime(vit * self.erpm_par_ms * signe,
+                                     self._second(roue == 'g'))
         self.publier_odom()
 
     def publier_odom(self):

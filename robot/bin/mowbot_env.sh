@@ -15,6 +15,17 @@ export MOWBOT_NODES="$MOWBOT_HOME/nodes"
 export MOWBOT_CONFIG="$MOWBOT_HOME/config"
 export MOWBOT_MAPS="$MOWBOT_HOME/maps"
 export MOWBOT_LOGS="/tmp/mowbot"
+
+# LE PROFIL DU ROBOT EST CHARGE ET EXPORTE ICI, une fois pour toutes. Chaque
+# script qui en avait besoin le rechargeait dans son coin (start_nav.sh,
+# run_tf.sh, run_lidar.sh), et ceux qui l'oubliaient tombaient sur un defaut
+# silencieux. Vecu le 5 septembre 2026 : scan_fix.py appliquait au gros robot
+# les secteurs masques du TRICYCLE -- masquant des directions libres tout en
+# laissant ses propres roues polluer la carte, sans qu'aucun message ne le dise.
+if [ -z "${MOWBOT_ROBOT:-}" ] && [ -f "$MOWBOT_HOME/robot_profile.env" ]; then
+  . "$MOWBOT_HOME/robot_profile.env"
+fi
+export MOWBOT_ROBOT="${MOWBOT_ROBOT:-}"
 mkdir -p "$MOWBOT_MAPS" 2>/dev/null
 # Dossier de logs partage : certains scripts tournent en root (detect_devices),
 # les services en utilisateur. Sans droits ouverts, celui qui cree le dossier
