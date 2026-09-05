@@ -74,7 +74,17 @@ def encadrer(charge):
 class Lien:
     """Acces serie au couple de VESC. Un seul fil ecrit, protege par un verrou."""
 
+    # UN HOQUET USB NE DOIT PAS TUER LE PILOTE. Vecu le 5 septembre 2026 :
+    # "device reports readiness to read but returned no data (device
+    # disconnected or multiple access on port?)" a fait tomber le noeud, donc
+    # /odom, donc toute la navigation. Le VESC coupe alors ses roues seul grace
+    # a son delai de garde -- c'est la bonne reaction -- mais le robot devient
+    # impilotable jusqu'a une intervention humaine. On rattrape l'exception, on
+    # rouvre le port, et on continue.
     def __init__(self, port, id_can):
+        self.chemin = port
+        self.casse = False
+        self.t_reouverture = 0.0
         # DELAI D'ATTENTE COURT, ET C'EST DELIBERE. Avec timeout=0.2 chaque
         # read() bloquait les 0,2 s entieres faute d'avoir ses 256 octets, alors
         # que le VESC repond en quelques millisecondes. Deux roues par cycle
@@ -85,11 +95,34 @@ class Lien:
         self.id_can = id_can
         self.verrou = threading.Lock()
 
+    def _reouvrir(self, journal=None):
+        """Tente de rouvrir le port, au plus une fois par seconde."""
+        if time.time() - self.t_reouverture < 1.0:
+            return False
+        self.t_reouverture = time.time()
+        try:
+            try:
+                self.s.close()
+            except Exception:
+                pass
+            self.s = serial.Serial(self.chemin, 115200, timeout=0.02)
+            self.casse = False
+            if journal:
+                journal.warning("liaison VESC retablie sur %s" % self.chemin)
+            return True
+        except Exception as e:
+            if journal:
+                journal.error("reouverture de %s impossible : %s" % (self.chemin, e))
+            return False
+
     def _envoyer(self, charge, second):
         if second:
             charge = bytes([COMM_FORWARD_CAN, self.id_can]) + charge
-        with self.verrou:
-            self.s.write(encadrer(charge))
+        try:
+            with self.verrou:
+                self.s.write(encadrer(charge))
+        except (serial.SerialException, OSError):
+            self.casse = True
 
     def _lire(self, delai=0.25):
         fin = time.time() + delai
@@ -97,7 +130,13 @@ class Lien:
         while time.time() < fin:
             # in_waiting quand il y a de quoi lire, sinon 1 octet : on ne
             # bloque jamais sur une quantite qui n'arrivera pas.
-            tampon += self.s.read(self.s.in_waiting or 1)
+            try:
+                tampon += self.s.read(self.s.in_waiting or 1)
+            except (serial.SerialException, OSError):
+                # Port disparu ou lecture impossible : on ne releve PAS
+                # l'exception, la boucle de controle doit survivre.
+                self.casse = True
+                return None
             while tampon:
                 # NE JAMAIS JETER UN OCTET DE DEBUT INCOMPLET. La version
                 # precedente testait "tampon[0] == 2 AND len(tampon) >= 2" : avec
@@ -157,7 +196,16 @@ class Lien:
         with self.verrou:
             self.s.reset_input_buffer()
         self._envoyer(bytes([COMM_GET_VALUES]), second)
-        r = self._lire(0.3)
+        # ECHEANCE COURTE, PLUS COURTE ENCORE POUR LE MAITRE. Mesure du
+        # 5 septembre 2026, douze aller-retours chacun :
+        #   maitre        12/12 | 0,021 s de moyenne | 0,021 s au pire
+        #   second (CAN)  11/12 | 0,058 s de moyenne | 0,404 s au pire
+        # Le relais CAN est trois fois plus lent et perd une reponse sur douze.
+        # Avec l'ancienne echeance de 0,3 s chaque perte coutait 0,3 s de boucle,
+        # et comme on ne publie rien si UNE roue manque, /odom tombait a 6,8 Hz.
+        # En renoncant plus vite, une reponse perdue ne coute que 0,12 s et fait
+        # sauter une publication au lieu d'effondrer la cadence.
+        r = self._lire(0.12 if second else 0.06)
         if not r or r[0] != COMM_GET_VALUES or len(r) < 53:
             return None
         v_in = struct.unpack('>h', r[27:29])[0] / 10.0
@@ -224,17 +272,33 @@ class VescDiffdrive(Node):
 
         idc = g('id_can')
         if idc < 0:
-            for i in range(11):
-                self.lien.id_can = i
-                if self.lien.version(second=True):
-                    self.get_logger().info("second VESC trouve a l'identifiant CAN %d" % i)
+            # PLUSIEURS TENTATIVES, ESPACEES. Le second VESC est derriere le bus
+            # CAN interne et n'est pas pret instantanement apres une mise sous
+            # tension : constate le 5 septembre 2026, le noeud a refuse de
+            # demarrer juste apres un redemarrage de l'UBOX alors que la moitie
+            # en question repondait parfaitement quelques secondes plus tard.
+            # Abandonner du premier coup obligeait a relancer a la main.
+            trouve = None
+            for essai in range(6):
+                for i in range(11):
+                    self.lien.id_can = i
+                    if self.lien.version(second=True):
+                        trouve = i
+                        break
+                if trouve is not None:
                     break
-            else:
+                self.get_logger().warning(
+                    "aucun second VESC au balayage %d/6, nouvelle tentative dans 2 s "
+                    "(l'UBOX vient peut-etre d'etre mis sous tension)" % (essai + 1))
+                time.sleep(2.0)
+            if trouve is None:
                 self.lien.id_can = None
                 self.get_logger().error(
-                    "AUCUN second VESC sur le bus CAN : une seule roue serait pilotee, "
-                    "ce qui ferait tourner le robot en rond. Arret.")
+                    "AUCUN second VESC sur le bus CAN apres 6 balayages : une seule "
+                    "roue serait pilotee, ce qui ferait tourner le robot en rond. Arret.")
                 raise SystemExit(2)
+            self.lien.id_can = trouve
+            self.get_logger().info("second VESC trouve a l'identifiant CAN %d" % trouve)
         else:
             self.lien.id_can = idc
 
@@ -283,6 +347,9 @@ class VescDiffdrive(Node):
         return self.gauche_second if gauche else not self.gauche_second
 
     def boucle(self):
+        if self.lien.casse:
+            if not self.lien._reouvrir(self.get_logger()):
+                return
         v, w = self.cmd
         if time.time() - self.t_cmd > self.deadman:
             v = w = 0.0                       # homme-mort
