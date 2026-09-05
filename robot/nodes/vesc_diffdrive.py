@@ -236,7 +236,17 @@ class VescDiffdrive(Node):
         p('gauche_est_second', False)  # la roue gauche est-elle sur le VESC du CAN ?
         p('periode', 0.05)             # 20 Hz
         p('deadman', 0.5)              # [s], comme le firmware ESP32
-        p('arret_libre', True)         # a consigne nulle : relacher, ou tenir 0 ?
+        # A L'ARRET, ON FREINE. arret_libre=True relachait les moteurs, et le
+        # robot ROULAIT SUR SON ERRE -- constate par l'utilisateur : "si je coupe
+        # la navigation il continue a rouler". Avec des roues de 40 cm et la masse
+        # de ce chassis, l'elan porte loin. Mauvais choix de ma part : je l'avais
+        # fait pour eviter que les moteurs chauffent au banc, sans peser ce que
+        # "pas de frein" veut dire sur un robot de 1,15 m.
+        # COMM_SET_CURRENT_BRAKE n'est PAS COMM_SET_RPM 0 : il applique un couple
+        # de freinage tant que la roue tourne, et ne se bat pas pour tenir une
+        # position a l'arret. C'est le bon mecanisme d'arret.
+        p('frein_a', 3.0)              # [A] courant de freinage a consigne nulle
+        p('arret_libre', False)        # True = relacher au lieu de freiner (banc)
         # MODE DE COMMANDE. "regime" est le bon choix pour ROULER : le VESC
         # asservit la vitesse et la tient dans l'herbe et les pentes. Mais en
         # sans-capteur il ne DEMARRE pas sous ~1200 ERPM, soit 0,39 m/s mesures
@@ -258,6 +268,7 @@ class VescDiffdrive(Node):
         self.gauche_second = g('gauche_est_second')
         self.deadman = g('deadman')
         self.arret_libre = g('arret_libre')
+        self.frein_a = abs(g('frein_a'))
         self.mode = str(g('mode_commande')).lower()
         self.duty_gain = g('duty_par_ms')
         self.duty_max = g('duty_max')
@@ -392,9 +403,10 @@ class VescDiffdrive(Node):
         # moteur, et le robot roule librement.
         # arret_libre=False rend le maintien actif : utile le jour ou il faudra
         # tenir dans une pente, a condition de surveiller la temperature.
-        if self.arret_libre and abs(vg) < 1e-6 and abs(vd) < 1e-6:
+        if abs(vg) < 1e-6 and abs(vd) < 1e-6:
+            courant = 0.0 if self.arret_libre else self.frein_a
             for second in (False, True):
-                self.lien.frein(0.0, second)
+                self.lien.frein(courant, second)
         else:
             for roue, vit, inv in (('g', vg, self.inv[0]), ('d', vd, self.inv[1])):
                 signe = -1 if inv else 1
@@ -456,6 +468,14 @@ class VescDiffdrive(Node):
             self.tf.sendTransform(tr)
 
     def arreter(self):
+        # En SORTANT on freine d'abord, puis on relache : sans le freinage le
+        # robot partirait sur son erre au moment ou le noeud s'arrete.
+        for second in (False, True):
+            try:
+                self.lien.frein(self.frein_a, second)
+            except Exception:
+                pass
+        time.sleep(0.4)
         for second in (False, True):
             try:
                 self.lien.regime(0, second)
