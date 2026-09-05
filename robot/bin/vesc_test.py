@@ -388,6 +388,23 @@ def main():
             print("  ATTENTION : le VESC ne repond pas a une demande de version.")
             print("  Le port existe mais rien ne parle : carte alimentee ? bon port ?")
             return 1
+        # AUTO-DETECTION DU SECOND VESC. Sans elle, le piege est garanti : une
+        # seule roue tourne et rien ne le dit. Vecu le 5 septembre 2026 -- le
+        # second etait a l'identifiant 6, pas au 1 attendu chez Spintend.
+        # --can-id -1 force explicitement le mode une seule roue.
+        if a.can_id is None:
+            for i in range(11):
+                v.can_id = i
+                if v.version(vers_second=True):
+                    print("  second VESC detecte a l'identifiant CAN %d" % i)
+                    break
+            else:
+                v.can_id = None
+                print("  AUCUN second VESC sur le bus CAN : une seule roue tournera.")
+                print("  Verifier que les deux moities de l'UBOX sont alimentees.")
+        elif a.can_id < 0:
+            v.can_id = None
+            print("  mode une seule roue demande (--can-id negatif)")
         if a.duty is not None:
             return mode_impulsion(v, a.duty, a.duree, a.courant)
         return mode_clavier(v, min(a.consigne, a.max), a.max, a.courant)
