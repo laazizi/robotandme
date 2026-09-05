@@ -48,14 +48,14 @@
   </joint>
 
   <!-- Repere visuel de l'AVANT : du cote de la roue folle. -->
-  <link name="avant">
+  <link name="front_marker">
     <visual>
       <geometry><box size="0.10 0.30 0.04"/></geometry>
       <material name="rouge"/>
     </visual>
   </link>
-  <joint name="chassis_to_avant" type="fixed">
-    <parent link="base_link"/><child link="avant"/>
+  <joint name="chassis_to_front_marker" type="fixed">
+    <parent link="base_link"/><child link="front_marker"/>
     <origin xyz="0.90 0 0.34" rpy="0 0 0"/>
   </joint>
 
@@ -114,4 +114,30 @@
          base_link -> laser_link  a x=0, z=0,28  (lidar au centre de l'essieu)
          base_link -> imu_link
   -->
+  <!-- Reperes conserves du modele precedent, parce que des vues RViz du depot
+       les referencent : les supprimer ferait apparaitre des erreurs d'affichage
+       sans que rien ne soit reellement casse. Ils n'ont aucun role fonctionnel.
+  -->
+  <link name="deck">
+    <visual>
+      <geometry><box size="0.60 0.70 0.02"/></geometry>
+      <material name="gris"/>
+    </visual>
+  </link>
+  <joint name="base_to_deck" type="fixed">
+    <parent link="base_link"/><child link="deck"/>
+    <origin xyz="0.30 0 0.33" rpy="0 0 0"/>
+  </joint>
+
+  <link name="lidar_body">
+    <visual>
+      <geometry><cylinder radius="0.040" length="0.05"/></geometry>
+      <material name="bleu"/>
+    </visual>
+  </link>
+  <joint name="base_to_lidar_body" type="fixed">
+    <parent link="base_link"/><child link="lidar_body"/>
+    <origin xyz="0 0 0.28" rpy="0 0 0"/>
+  </joint>
+
 </robot>
