@@ -164,6 +164,7 @@ class VescDiffdrive(Node):
         p('gauche_est_second', False)  # la roue gauche est-elle sur le VESC du CAN ?
         p('periode', 0.05)             # 20 Hz
         p('deadman', 0.5)              # [s], comme le firmware ESP32
+        p('arret_libre', True)         # a consigne nulle : relacher, ou tenir 0 ?
         p('publier_tf', False)         # l'EKF publie odom->base_link, pas nous
 
         g = lambda n: self.get_parameter(n).value
@@ -174,6 +175,7 @@ class VescDiffdrive(Node):
         self.inv = (g('inverser_gauche'), g('inverser_droite'))
         self.gauche_second = g('gauche_est_second')
         self.deadman = g('deadman')
+        self.arret_libre = g('arret_libre')
         self.publier_tf = g('publier_tf')
 
         if self.voie <= 0 or self.rayon <= 0:
@@ -257,9 +259,21 @@ class VescDiffdrive(Node):
             k = self.v_max / pire
             vg *= k
             vd *= k
-        for roue, vit, inv in (('g', vg, self.inv[0]), ('d', vd, self.inv[1])):
-            erpm = vit * self.erpm_par_ms * (-1 if inv else 1)
-            self.lien.regime(erpm, self._second(roue == 'g'))
+        # A CONSIGNE NULLE, ON RELACHE PLUTOT QUE DE TENIR ZERO.
+        # COMM_SET_RPM 0 engage l'asservissement de vitesse sur zero : le VESC
+        # injecte du courant pour EMPECHER la roue de tourner. Sur un banc, roues
+        # en l'air, elles resistent a la main ; sur le robot, les moteurs
+        # chauffent a l'arret sans rien faire d'utile. Un frein a 0 A relache le
+        # moteur, et le robot roule librement.
+        # arret_libre=False rend le maintien actif : utile le jour ou il faudra
+        # tenir dans une pente, a condition de surveiller la temperature.
+        if self.arret_libre and abs(vg) < 1e-6 and abs(vd) < 1e-6:
+            for second in (False, True):
+                self.lien.frein(0.0, second)
+        else:
+            for roue, vit, inv in (('g', vg, self.inv[0]), ('d', vd, self.inv[1])):
+                erpm = vit * self.erpm_par_ms * (-1 if inv else 1)
+                self.lien.regime(erpm, self._second(roue == 'g'))
         self.publier_odom()
 
     def publier_odom(self):
